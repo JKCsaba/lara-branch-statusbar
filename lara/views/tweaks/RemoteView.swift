@@ -131,42 +131,42 @@ struct RemoteView: View {
                 }
 
                 Button {
-                    run("Reverse Status Bar") {
+                    run("V3 Async: Rotate Status Bar 180°") {
                         let result = reverse_status_bar(mgr.sbProc)
                         return "reverse_status_bar() -> \(result)"
                     }
                 } label: {
-                    Text("Reverse Status Bar")
+                    Text("V3 Async: Rotate Status Bar 180°")
                 }
 
                 Button {
-                    run("Restore Status Bar") {
+                    run("V3 Stage 2: Move Status Bar to Opposite Edge") {
+                        let result = move_status_bar_to_opposite_edge(mgr.sbProc)
+                        return "move_status_bar_to_opposite_edge() -> \(result)"
+                    }
+                } label: {
+                    Text("V3 Stage 2: Move to Opposite Edge")
+                }
+
+                Button {
+                    run("V3 Async: Restore Status Bar Transform") {
                         let result = restore_status_bar(mgr.sbProc)
                         return "restore_status_bar() -> \(result)"
                     }
                 } label: {
-                    Text("Restore Status Bar")
+                    Text("V3 Async: Restore Transform")
                 }
 
                 Button {
-                    run("Debug Status Bar Geometry") {
+                    run("V3 Read-Only Status Bar Geometry") {
                         let result = debug_status_bar_geometry(mgr.sbProc)
                         return "debug_status_bar_geometry() -> \(result)"
                     }
                 } label: {
-                    Text("Debug Status Bar Geometry")
-                }
-
-                Button {
-                    run("Restore Home Screen Visibility") {
-                        let result = restore_homescreen_visibility(mgr.sbProc)
-                        return "restore_homescreen_visibility() -> \(result)"
-                    }
-                } label: {
-                    Text("Restore Home Screen Visibility")
+                    Text("V3 Read-Only Geometry Probe")
                 }
             } footer: {
-                Text("Reverse Status Bar rotates the live SpringBoard status bar 180° and, when needed, translates it to the opposite screen edge. Restore resets that transform. Home Screen Visibility is a narrow recovery helper for opacity/hidden changes made in UIKit's debug inspector.")
+                Text("V3 uses queued main-run-loop invocations with waitUntilDone = false; it never takes over SpringBoard's main thread. Test Stage 1 rotation first. Only if that works normally, use Stage 2 to move the 61pt strip to the opposite edge. Restore queues both transform components back to zero.")
             }
 
             Section {
