@@ -109,7 +109,7 @@ final class StatusBarAutoFollower {
     func start(mgr: laramgr) -> String {
         // Hard-disabled in the V6.3 build.  This prevents any stale/hidden call
         // site from recreating the unstable background RemoteCall watchdog.
-        return "V6.2 auto-follow is disabled in V6.3; use Event Discovery + manual V6 sync"
+        return "V6.2 auto-follow is disabled in V6.3.1; use the minimal callback verifier + manual V6 sync"
     }
 
     func forceSync(mgr: laramgr) {
@@ -204,22 +204,6 @@ struct RemoteView: View {
     @State private var dockLiftEnabled: Bool = false
     @State private var bottomGradientHeight: Double = 100.0
     @State private var bottomGradientEnabled: Bool = false
-    @State private var v63TargetIndex: Int = 6
-    @State private var v63CandidateIndex: Int = 1
-    @State private var v63CandidateCount: Int = 0
-
-    private let v63TargetNames: [String] = [
-        "SpringBoard application",
-        "Status-bar view",
-        "Status-bar window",
-        "Status-bar root VC",
-        "Main window scene",
-        "Home-screen controller",
-        "SBIconController",
-        "Root-folder controller",
-        "Scene delegate",
-        "SBMainWorkspace"
-    ]
 
     private var dockMaxColumns: Int { rcdockunlimited ? 50 : 10 }
 
@@ -335,57 +319,22 @@ struct RemoteView: View {
                 }
 
                 Button {
-                    run("V6.3: Quick Discover Orientation Candidates") {
-                        let count = v63_quick_discover_orientation_candidates(mgr.sbProc)
-                        return "v63_quick_discover_orientation_candidates() -> \(count)"
-                    } onComplete: { _ in
-                        v63CandidateCount = max(Int(v63_get_candidate_count()), 0)
-                        if v63CandidateCount == 0 { v63CandidateIndex = 1 }
-                        else { v63CandidateIndex = min(max(v63CandidateIndex, 1), v63CandidateCount) }
+                    run("V6.3.1: Verify SBIconController Rotation Callback") {
+                        let result = v631_verify_iconcontroller_orientation_callback(mgr.sbProc)
+                        return "v631_verify_iconcontroller_orientation_callback() -> \(result)"
                     }
                 } label: {
-                    Text("V6.3: Quick Discover Candidates")
-                }
-
-                Picker("Deep-scan target", selection: $v63TargetIndex) {
-                    ForEach(0..<v63TargetNames.count, id: \.self) { index in
-                        Text("\(index): \(v63TargetNames[index])").tag(index)
-                    }
+                    Text("V6.3.1: Verify Native Rotation Callback")
                 }
 
                 Button {
-                    run("V6.3: Deep Scan Target \(v63TargetIndex)") {
-                        let matched = v63_deep_scan_orientation_target(mgr.sbProc, Int32(v63TargetIndex))
-                        return "v63_deep_scan_orientation_target(\(v63TargetIndex)) -> \(matched)"
-                    } onComplete: { _ in
-                        v63CandidateCount = max(Int(v63_get_candidate_count()), 0)
-                        if v63CandidateCount > 0 {
-                            v63CandidateIndex = min(max(v63CandidateIndex, 1), v63CandidateCount)
-                        }
+                    run("V6.3.1: Invoke Candidate A Once") {
+                        let result = v631_invoke_iconcontroller_orientation_callback(mgr.sbProc)
+                        return "v631_invoke_iconcontroller_orientation_callback() -> \(result)"
                     }
                 } label: {
-                    Text("V6.3: Deep Scan Selected Target")
+                    Text("V6.3.1: Invoke Candidate A Once")
                 }
-
-                Stepper(value: $v63CandidateIndex, in: 1...max(v63CandidateCount, 1)) {
-                    HStack {
-                        Text("Candidate")
-                        Spacer()
-                        Text("#\(v63CandidateIndex) / \(v63CandidateCount)")
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-
-                Button {
-                    run("V6.3: Invoke Candidate #\(v63CandidateIndex)") {
-                        let result = v63_invoke_candidate(mgr.sbProc, Int32(v63CandidateIndex))
-                        return "v63_invoke_candidate(\(v63CandidateIndex)) -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3: Invoke Selected No-Arg Candidate")
-                }
-                .disabled(v63CandidateCount == 0)
 
                 Button {
                     run("V6.3: Manual Known-Good V6 Sync") {
@@ -423,9 +372,9 @@ struct RemoteView: View {
                     Text("Read-Only Geometry Probe")
                 }
             } header: {
-                Text("Status Bar V6.3 Event Discovery")
+                Text("Status Bar V6.3.1 Crash-Hardened")
             } footer: {
-                Text("V6.3 starts no timer and no silent-audio keepalive. Quick Discover probes a bounded selector matrix across live SpringBoard/status-bar/Home Screen objects. Deep Scan is optional and scans only the selected concrete class plus one superclass, capped at 96 methods. Candidate methods with Objective-C args=2 (self + _cmd only) can be invoked manually on SpringBoard's main thread; argument-taking transition methods are logged as metadata only. Leaving Lara destroys RemoteCall normally; the upside-down SpringBoard swizzles themselves remain until respring.")
+                Text("V6.3.1 keeps the zero-watchdog design and retires Quick Discover/Deep Scan after the physical-device 0x401 crashes. Start with Verify Native Rotation Callback. If it returns 1, rotate the phone upside-down and use Invoke Candidate A Once exactly once; that queues only -[SBIconController updateContentViewOrientationAndLayoutIfNeeded] on SpringBoard’s main thread. There is no method enumeration, no remote class-name/type-encoding read, no timer, and no background RemoteCall keepalive. The minimal orientation probe now reads only activeInterfaceOrientation.")
             }
 
             Section {
