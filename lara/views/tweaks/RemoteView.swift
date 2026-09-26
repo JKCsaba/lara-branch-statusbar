@@ -109,7 +109,7 @@ final class StatusBarAutoFollower {
     func start(mgr: laramgr) -> String {
         // Hard-disabled in the V6.3 build.  This prevents any stale/hidden call
         // site from recreating the unstable background RemoteCall watchdog.
-        return "V6.2 auto-follow is disabled in V6.3.2; use the minimal Candidate B verifier + manual V6 sync"
+        return "V6.2 auto-follow is disabled in V6.3.3; use the minimal Candidate C verifier + manual V6 sync"
     }
 
     func forceSync(mgr: laramgr) {
@@ -319,21 +319,21 @@ struct RemoteView: View {
                 }
 
                 Button {
-                    run("V6.3.2: Verify Candidate B") {
-                        let result = v632_verify_iconcontroller_private_orientation_callback(mgr.sbProc)
-                        return "v632_verify_iconcontroller_private_orientation_callback() -> \(result)"
+                    run("V6.3.3: Verify Candidate C") {
+                        let result = v633_verify_iconcontroller_supported_orientations_update(mgr.sbProc)
+                        return "v633_verify_iconcontroller_supported_orientations_update() -> \(result)"
                     }
                 } label: {
-                    Text("V6.3.2: Verify Candidate B")
+                    Text("V6.3.3: Verify Candidate C")
                 }
 
                 Button {
-                    run("V6.3.2: Invoke Candidate B Once") {
-                        let result = v632_invoke_iconcontroller_private_orientation_callback(mgr.sbProc)
-                        return "v632_invoke_iconcontroller_private_orientation_callback() -> \(result)"
+                    run("V6.3.3: Invoke Candidate C Once") {
+                        let result = v633_invoke_iconcontroller_supported_orientations_update(mgr.sbProc)
+                        return "v633_invoke_iconcontroller_supported_orientations_update() -> \(result)"
                     }
                 } label: {
-                    Text("V6.3.2: Invoke Candidate B Once")
+                    Text("V6.3.3: Invoke Candidate C Once")
                 }
 
                 Button {
@@ -372,9 +372,9 @@ struct RemoteView: View {
                     Text("Read-Only Geometry Probe")
                 }
             } header: {
-                Text("Status Bar V6.3.2 Candidate B")
+                Text("Status Bar V6.3.3 Candidate C")
             } footer: {
-                Text("V6.3.2 keeps the zero-watchdog crash-hardened design. Candidate A was absent on the target iOS 18.4 build, so this revision tests only Candidate B: -[SBIconController _updateContentViewOrientationAndLayoutIfNeeded]. Verify first. Only if Verify returns 1, rotate upside-down and invoke Candidate B once. No bulk scanning, remote metadata-string reads, timer, or background RemoteCall keepalive are used.")
+                Text("V6.3.3 keeps the zero-watchdog crash-hardened design. Candidates A and B were absent on the target iOS 18.4 build, so this revision tests only Candidate C: -[SBIconController setNeedsUpdateOfSupportedInterfaceOrientations]. Verify first. Only if Verify returns 1, rotate upside-down and invoke Candidate C once. No bulk scanning, remote metadata-string reads, timer, or background RemoteCall keepalive are used.")
             }
 
             Section {

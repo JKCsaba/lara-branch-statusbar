@@ -1,3 +1,7 @@
+## V6.3.3 Candidate C branch
+
+Physical-device V6.3.1/V6.3.2 testing found Candidates A and B absent on the target iPhone 12 / iOS 18.4 runtime. V6.3.3 keeps the crash-hardened no-polling/no-bulk-scan design and tests only `-[SBIconController setNeedsUpdateOfSupportedInterfaceOrientations]`. See `STATUSBAR_V6_3_3_CANDIDATE_C_NOTES.md`.
+
 ## V6.3.2 Candidate B branch
 
 Candidate A was absent on the target iPhone 12 / iOS 18.4 runtime. V6.3.2 keeps the crash-hardened no-polling/no-bulk-scan design and tests only `-[SBIconController _updateContentViewOrientationAndLayoutIfNeeded]`. See `STATUSBAR_V6_3_2_CANDIDATE_B_NOTES.md`.
