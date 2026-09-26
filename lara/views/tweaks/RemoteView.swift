@@ -109,7 +109,7 @@ final class StatusBarAutoFollower {
     func start(mgr: laramgr) -> String {
         // Hard-disabled in the V6.3 build.  This prevents any stale/hidden call
         // site from recreating the unstable background RemoteCall watchdog.
-        return "V6.2 auto-follow is disabled in V6.3.3; use the minimal Candidate C verifier + manual V6 sync"
+        return "V6.2 auto-follow is disabled in V6.3.4; use callback capture / native refresh / explicit orientation-driven apply"
     }
 
     func forceSync(mgr: laramgr) {
@@ -319,21 +319,48 @@ struct RemoteView: View {
                 }
 
                 Button {
-                    run("V6.3.3: Verify Candidate C") {
-                        let result = v633_verify_iconcontroller_supported_orientations_update(mgr.sbProc)
-                        return "v633_verify_iconcontroller_supported_orientations_update() -> \(result)"
+                    run("V6.3.4: Capture Callback Map") {
+                        let result = v634_capture_rotation_callback_map(mgr.sbProc)
+                        return "v634_capture_rotation_callback_map() -> \(result)"
                     }
                 } label: {
-                    Text("V6.3.3: Verify Candidate C")
+                    Text("V6.3.4: Capture Callback Map")
                 }
 
                 Button {
-                    run("V6.3.3: Invoke Candidate C Once") {
-                        let result = v633_invoke_iconcontroller_supported_orientations_update(mgr.sbProc)
-                        return "v633_invoke_iconcontroller_supported_orientations_update() -> \(result)"
+                    run("V6.3.4: Arm Best Callback Detector") {
+                        let result = v634_arm_best_callback_detector(mgr.sbProc)
+                        return "v634_arm_best_callback_detector() -> \(result)"
                     }
                 } label: {
-                    Text("V6.3.3: Invoke Candidate C Once")
+                    Text("V6.3.4: Arm Best Callback Detector")
+                }
+
+                Button {
+                    run("V6.3.4: Check + Restore Callback Detector") {
+                        let result = v634_check_and_restore_best_callback_detector(mgr.sbProc)
+                        return "v634_check_and_restore_best_callback_detector() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.4: Check + Restore Callback Detector")
+                }
+
+                Button {
+                    run("V6.3.4: Native Rotation Refresh Pack") {
+                        let result = v634_run_native_orientation_refresh_pack(mgr.sbProc)
+                        return "v634_run_native_orientation_refresh_pack() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.4: Native Rotation Refresh Pack")
+                }
+
+                Button {
+                    run("V6.3.4: Apply Status Bar + Dock From Orientation") {
+                        let result = v634_apply_statusbar_and_dock_for_current_orientation(mgr.sbProc, dockLiftPoints)
+                        return "v634_apply_statusbar_and_dock_for_current_orientation(lift=\(dockLiftPoints)) -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.4: Apply Status Bar + Dock From Orientation")
                 }
 
                 Button {
@@ -372,9 +399,9 @@ struct RemoteView: View {
                     Text("Read-Only Geometry Probe")
                 }
             } header: {
-                Text("Status Bar V6.3.3 Candidate C")
+                Text("Status Bar V6.3.4 Callback Capture")
             } footer: {
-                Text("V6.3.3 keeps the zero-watchdog crash-hardened design. Candidates A and B were absent on the target iOS 18.4 build, so this revision tests only Candidate C: -[SBIconController setNeedsUpdateOfSupportedInterfaceOrientations]. Verify first. Only if Verify returns 1, rotate upside-down and invoke Candidate C once. No bulk scanning, remote metadata-string reads, timer, or background RemoteCall keepalive are used.")
+                Text("V6.3.4 does the callback search in one build. Capture Callback Map checks a fixed bounded set of live status-bar/window/scene/Home Screen callbacks without method enumeration or remote metadata-string reads. Arm Best Callback Detector temporarily replaces only the best concrete callback with a retain-count marker; rotate exactly once, reopen Lara, then immediately use Check + Restore. Native Rotation Refresh Pack tests UIKit-owned refresh/layout only. Apply Status Bar + Dock From Orientation is the control that drives both known-good Lara transforms from active orientation 1/2. No timer or background RemoteCall keepalive is used.")
             }
 
             Section {

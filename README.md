@@ -1,3 +1,7 @@
+## V6.3.4 callback-capture branch
+
+V6.3.3 confirmed that SpringBoard's native `activeInterfaceOrientation` changes from `1` to `2` when the iPhone 12 rotates upside-down, while Candidate C is absent. V6.3.4 replaces the one-candidate-per-build loop with one bounded callback map, a temporary one-rotation firing detector for the best concrete callback override, a native refresh pack, and a control that applies the known-good status-bar + Dock/Search geometry from the current orientation. See `STATUSBAR_V6_3_4_CALLBACK_CAPTURE_NOTES.md`.
+
 ## V6.3.3 Candidate C branch
 
 Physical-device V6.3.1/V6.3.2 testing found Candidates A and B absent on the target iPhone 12 / iOS 18.4 runtime. V6.3.3 keeps the crash-hardened no-polling/no-bulk-scan design and tests only `-[SBIconController setNeedsUpdateOfSupportedInterfaceOrientations]`. See `STATUSBAR_V6_3_3_CANDIDATE_C_NOTES.md`.
