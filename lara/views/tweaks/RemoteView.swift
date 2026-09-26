@@ -8,13 +8,9 @@
 import SwiftUI
 import Darwin
 
-// V6 keeps the proven V3 status-bar transform and only automates the already-
-// verified manual Sync action.  The polling lives in Lara instead of installing
-// private UIKit method overrides into SpringBoard.  Lara's existing audio
-// keepalive allows this to continue while the app is in the background.
-//
-// The flag is intentionally module-global so lara.swift can avoid destroying
-// the SpringBoard RemoteCall session while auto-follow owns it.
+// Legacy V6.2 helper retained for the one-shot Dock/Search/gradient controls.
+// V6.3 deliberately disables its old status-bar watchdog: no timer, no audio
+// keepalive, and no background RemoteCall ownership are used by the V6.3 path.
 var laraStatusBarAutoFollowActive = false
 
 final class StatusBarAutoFollower {
@@ -111,75 +107,9 @@ final class StatusBarAutoFollower {
     }
 
     func start(mgr: laramgr) -> String {
-        guard mgr.rcready, let proc = mgr.sbProc else {
-            return "V6 safe auto-follow: RemoteCall is not ready"
-        }
-
-        // This is the same one-tap base that is already proven perfect on-device.
-        let base = enable_v6_safe_status_bar_autofollow_base(proc)
-        guard base == 0 else {
-            return "enable_v6_safe_status_bar_autofollow_base() -> \(base)"
-        }
-
-        ensureKeepAlive()
-
-        let initialOrientation = UInt64(get_v6_active_interface_orientation(proc))
-
-        lock.lock()
-        laraStatusBarAutoFollowActive = true
-        lastError = 0
-        invalidOrientationStreak = 0
-        lastOrientation = (initialOrientation == 1 || initialOrientation == 2) ? initialOrientation : 0
-        let alreadyRunning = (timer != nil)
-        lock.unlock()
-
-        if initialOrientation == 1 || initialOrientation == 2 {
-            applyAccessories(proc: proc, orientation: initialOrientation, mgr: mgr)
-        }
-
-        if !alreadyRunning {
-            let t = DispatchSource.makeTimerSource(queue: queue)
-            // V6.2 deliberately trades instant rotation-following for stability.
-            // RemoteCall is invasive; 400 ms meant ~9,000 cross-process probes/hour.
-            // One probe every 30 seconds cuts that by 75x.  Use "Sync Now" when
-            // you want an immediate update instead of waiting for the next tick.
-            t.schedule(deadline: .now() + .seconds(30),
-                       repeating: .seconds(30),
-                       leeway: .seconds(3))
-            t.setEventHandler { [weak self, weak mgr] in
-                guard let self, let mgr else { return }
-                guard self.shouldPoll(), mgr.rcready, let proc = mgr.sbProc else { return }
-
-                let orientation = UInt64(get_v6_active_interface_orientation(proc))
-                guard orientation == 1 || orientation == 2 else {
-                    self.lock.lock()
-                    self.invalidOrientationStreak += 1
-                    let streak = self.invalidOrientationStreak
-                    self.lock.unlock()
-                    // Avoid log spam. A persistent invalid state normally means
-                    // SpringBoard/RemoteCall changed underneath us; stop touching it.
-                    if streak == 5 {
-                        mgr.logmsg("(rc) V6.1 auto-follow: orientation unavailable 5x; transforms skipped")
-                    }
-                    return
-                }
-
-                self.lock.lock()
-                let previous = self.lastOrientation
-                self.invalidOrientationStreak = 0
-                self.lock.unlock()
-                guard orientation != previous else { return }
-
-                self.syncChangedOrientation(mgr: mgr, proc: proc, orientation: orientation)
-            }
-
-            lock.lock()
-            timer = t
-            lock.unlock()
-            t.resume()
-        }
-
-        return "V6.2 low-churn auto-follow ACTIVE (locked V3 geometry, 30s trigger, keepalive=\(kaenabled))"
+        // Hard-disabled in the V6.3 build.  This prevents any stale/hidden call
+        // site from recreating the unstable background RemoteCall watchdog.
+        return "V6.2 auto-follow is disabled in V6.3; use Event Discovery + manual V6 sync"
     }
 
     func forceSync(mgr: laramgr) {
@@ -274,6 +204,22 @@ struct RemoteView: View {
     @State private var dockLiftEnabled: Bool = false
     @State private var bottomGradientHeight: Double = 100.0
     @State private var bottomGradientEnabled: Bool = false
+    @State private var v63TargetIndex: Int = 6
+    @State private var v63CandidateIndex: Int = 1
+    @State private var v63CandidateCount: Int = 0
+
+    private let v63TargetNames: [String] = [
+        "SpringBoard application",
+        "Status-bar view",
+        "Status-bar window",
+        "Status-bar root VC",
+        "Main window scene",
+        "Home-screen controller",
+        "SBIconController",
+        "Root-folder controller",
+        "Scene delegate",
+        "SBMainWorkspace"
+    ]
 
     private var dockMaxColumns: Int { rcdockunlimited ? 50 : 10 }
 
@@ -371,29 +317,86 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("V6: Enable Safe Status Bar Auto-Follow") {
-                        return StatusBarAutoFollower.shared.start(mgr: mgr)
+                    run("V6.3: Prepare Rotation Baseline") {
+                        let result = v63_prepare_rotation_baseline(mgr.sbProc)
+                        return "v63_prepare_rotation_baseline() -> \(result)"
                     }
                 } label: {
-                    Text("V6.2: Low-Churn Auto-Follow — One Tap")
+                    Text("V6.3: Prepare Rotation Baseline")
                 }
 
                 Button {
-                    let msg = StatusBarAutoFollower.shared.stop()
-                    mgr.logmsg("(rc) \(msg)")
+                    run("V6.3: Probe Live Orientation State") {
+                        let result = v63_probe_orientation_state(mgr.sbProc)
+                        return "v63_probe_orientation_state() -> \(result)"
+                    }
                 } label: {
-                    Text("V6: Stop Auto-Follow")
+                    Text("V6.3: Probe Live Orientation State")
                 }
 
                 Button {
-                    StatusBarAutoFollower.shared.forceSync(mgr: mgr)
+                    run("V6.3: Quick Discover Orientation Candidates") {
+                        let count = v63_quick_discover_orientation_candidates(mgr.sbProc)
+                        return "v63_quick_discover_orientation_candidates() -> \(count)"
+                    } onComplete: { _ in
+                        v63CandidateCount = max(Int(v63_get_candidate_count()), 0)
+                        if v63CandidateCount == 0 { v63CandidateIndex = 1 }
+                        else { v63CandidateIndex = min(max(v63CandidateIndex, 1), v63CandidateCount) }
+                    }
                 } label: {
-                    Text("V6.2: Sync Now")
+                    Text("V6.3: Quick Discover Candidates")
+                }
+
+                Picker("Deep-scan target", selection: $v63TargetIndex) {
+                    ForEach(0..<v63TargetNames.count, id: \.self) { index in
+                        Text("\(index): \(v63TargetNames[index])").tag(index)
+                    }
                 }
 
                 Button {
-                    let stopMsg = StatusBarAutoFollower.shared.stop()
-                    mgr.logmsg("(rc) \(stopMsg)")
+                    run("V6.3: Deep Scan Target \(v63TargetIndex)") {
+                        let matched = v63_deep_scan_orientation_target(mgr.sbProc, Int32(v63TargetIndex))
+                        return "v63_deep_scan_orientation_target(\(v63TargetIndex)) -> \(matched)"
+                    } onComplete: { _ in
+                        v63CandidateCount = max(Int(v63_get_candidate_count()), 0)
+                        if v63CandidateCount > 0 {
+                            v63CandidateIndex = min(max(v63CandidateIndex, 1), v63CandidateCount)
+                        }
+                    }
+                } label: {
+                    Text("V6.3: Deep Scan Selected Target")
+                }
+
+                Stepper(value: $v63CandidateIndex, in: 1...max(v63CandidateCount, 1)) {
+                    HStack {
+                        Text("Candidate")
+                        Spacer()
+                        Text("#\(v63CandidateIndex) / \(v63CandidateCount)")
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+
+                Button {
+                    run("V6.3: Invoke Candidate #\(v63CandidateIndex)") {
+                        let result = v63_invoke_candidate(mgr.sbProc, Int32(v63CandidateIndex))
+                        return "v63_invoke_candidate(\(v63CandidateIndex)) -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3: Invoke Selected No-Arg Candidate")
+                }
+                .disabled(v63CandidateCount == 0)
+
+                Button {
+                    run("V6.3: Manual Known-Good V6 Sync") {
+                        let result = sync_v6_status_bar_to_active_orientation(mgr.sbProc, 1)
+                        return "sync_v6_status_bar_to_active_orientation(force=1) -> \(result)"
+                    }
+                } label: {
+                    Text("Fallback: Manual Known-Good V6 Sync")
+                }
+
+                Button {
                     run("V3: Static Upside-Down Fallback") {
                         let result = apply_v3_upside_down_status_bar(mgr.sbProc)
                         return "apply_v3_upside_down_status_bar() -> \(result)"
@@ -403,17 +406,6 @@ struct RemoteView: View {
                 }
 
                 Button {
-                    run("V3/V6: Sync Status Bar to Current Orientation") {
-                        let result = sync_v6_status_bar_to_active_orientation(mgr.sbProc, 1)
-                        return "sync_v6_status_bar_to_active_orientation(force=1) -> \(result)"
-                    }
-                } label: {
-                    Text("Fallback: Sync Current Orientation")
-                }
-
-                Button {
-                    let stopMsg = StatusBarAutoFollower.shared.stop()
-                    mgr.logmsg("(rc) \(stopMsg)")
                     run("V3/V6: Restore Normal Status Bar") {
                         let result = restore_status_bar(mgr.sbProc)
                         return "restore_status_bar() -> \(result)"
@@ -430,8 +422,10 @@ struct RemoteView: View {
                 } label: {
                     Text("Read-Only Geometry Probe")
                 }
+            } header: {
+                Text("Status Bar V6.3 Event Discovery")
             } footer: {
-                Text("V6 LOCKED: the exact proven V3 status-bar transform is unchanged. V6.2 reduces the trigger to one cached orientation read every 30 seconds (75x fewer probes than 400 ms). Use Sync Now for an immediate update. The silent-audio keepalive and live SpringBoard RemoteCall are still required while auto-follow is enabled.")
+                Text("V6.3 starts no timer and no silent-audio keepalive. Quick Discover probes a bounded selector matrix across live SpringBoard/status-bar/Home Screen objects. Deep Scan is optional and scans only the selected concrete class plus one superclass, capped at 96 methods. Candidate methods with Objective-C args=2 (self + _cmd only) can be invoked manually on SpringBoard's main thread; argument-taking transition methods are logged as metadata only. Leaving Lara destroys RemoteCall normally; the upside-down SpringBoard swizzles themselves remain until respring.")
             }
 
             Section {
@@ -497,7 +491,7 @@ struct RemoteView: View {
             } header: {
                 Text("Upside-Down Home Screen")
             } footer: {
-                Text("23 pt is the default lift. V6.2 moves the Home Screen dock and its Search/page-control together so their spacing stays intact. Dock/gradient updates happen only on a detected portrait flip or when you press their buttons; they do not add polling loops. The gradient now uses a real overlay view placed behind the dock instead of a root-layer index that could disappear behind SpringBoard content.")
+                Text("23 pt is the default lift. In V6.3 there is no orientation watchdog, so these accessory controls apply only to the orientation that is current when you press them. Keep them disabled while isolating status-bar/event candidates; test them separately after the orientation hook path is known.")
             }
 
             Section {
