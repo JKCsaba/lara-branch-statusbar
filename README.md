@@ -1,3 +1,7 @@
+## V6.2 Low-Churn status-bar branch
+
+See `STATUSBAR_V6_2_LOW_CHURN_NOTES.md` for the locked V6 geometry, 30-second watchdog, 23 pt Dock + Search lift, and revised gradient overlay.
+
 # Lara status-bar / floating dock V5
 
 Baseline: user-supplied V3-restored source.

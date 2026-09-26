@@ -24,7 +24,7 @@ final class StatusBarAutoFollower {
     // sync_v6_status_bar_to_active_orientation(..., force: 1). V6.1 only makes
     // the *trigger* lighter: one cached orientation read per tick, and the
     // transform runs only after a real orientation change.
-    private let queue = DispatchQueue(label: "lara.statusbar.v6.autofollow", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "lara.statusbar.v6.autofollow", qos: .utility)
     private let lock = NSLock()
     private var timer: DispatchSourceTimer?
     private var externalActionRunning = false
@@ -36,7 +36,7 @@ final class StatusBarAutoFollower {
     // Optional Home Screen accessories. They piggy-back on the same orientation
     // event and therefore add zero extra steady-state polling.
     private var dockLiftEnabled = false
-    private var dockLiftPoints: Double = 22.0
+    private var dockLiftPoints: Double = 23.0
     private var bottomGradientEnabled = false
     private var bottomGradientHeight: Double = 100.0
 
@@ -79,13 +79,13 @@ final class StatusBarAutoFollower {
         let upsideDown = orientation == 2
 
         if state.dock {
-            let r = set_v61_dock_vertical_lift(proc, state.lift, upsideDown ? 1 : 0)
-            if r != 0 { mgr.logmsg("(rc) V6.1 dock lift -> \(r)") }
+            let r = set_v62_dock_and_search_vertical_lift(proc, state.lift, upsideDown ? 1 : 0)
+            if r != 0 { mgr.logmsg("(rc) V6.2 dock/search lift -> \(r)") }
         }
 
         if state.gradient {
-            let r = set_v61_bottom_gradient(proc, state.gradientHeight, upsideDown ? 1 : 0)
-            if r != 0 { mgr.logmsg("(rc) V6.1 bottom gradient -> \(r)") }
+            let r = set_v62_bottom_gradient(proc, state.gradientHeight, upsideDown ? 1 : 0)
+            if r != 0 { mgr.logmsg("(rc) V6.2 bottom gradient -> \(r)") }
         }
     }
 
@@ -139,11 +139,13 @@ final class StatusBarAutoFollower {
 
         if !alreadyRunning {
             let t = DispatchSource.makeTimerSource(queue: queue)
-            // 400 ms keeps the same "instant" feel while the cached C helper
-            // reduces steady-state work to one remote objc_msgSend per tick.
-            t.schedule(deadline: .now() + .milliseconds(250),
-                       repeating: .milliseconds(400),
-                       leeway: .milliseconds(80))
+            // V6.2 deliberately trades instant rotation-following for stability.
+            // RemoteCall is invasive; 400 ms meant ~9,000 cross-process probes/hour.
+            // One probe every 30 seconds cuts that by 75x.  Use "Sync Now" when
+            // you want an immediate update instead of waiting for the next tick.
+            t.schedule(deadline: .now() + .seconds(30),
+                       repeating: .seconds(30),
+                       leeway: .seconds(3))
             t.setEventHandler { [weak self, weak mgr] in
                 guard let self, let mgr else { return }
                 guard self.shouldPoll(), mgr.rcready, let proc = mgr.sbProc else { return }
@@ -177,7 +179,7 @@ final class StatusBarAutoFollower {
             t.resume()
         }
 
-        return "V6 safe auto-follow ACTIVE (locked V3 geometry, cached 400ms trigger, keepalive=\(kaenabled))"
+        return "V6.2 low-churn auto-follow ACTIVE (locked V3 geometry, 30s trigger, keepalive=\(kaenabled))"
     }
 
     func forceSync(mgr: laramgr) {
@@ -202,10 +204,10 @@ final class StatusBarAutoFollower {
         queue.async {
             let orientation = UInt64(get_v6_active_interface_orientation(proc))
             let upsideDown = enabled && orientation == 2
-            let r = set_v61_dock_vertical_lift(proc, clamped, upsideDown ? 1 : 0)
-            if r != 0 { mgr.logmsg("(rc) V6.1 dock lift immediate -> \(r)") }
+            let r = set_v62_dock_and_search_vertical_lift(proc, clamped, upsideDown ? 1 : 0)
+            if r != 0 { mgr.logmsg("(rc) V6.2 dock/search lift immediate -> \(r)") }
         }
-        return enabled ? "V6.1 dock lift enabled at \(Int(clamped.rounded())) pt" : "V6.1 dock lift disabled; restoring stock Y"
+        return enabled ? "V6.2 dock + Search lift enabled at \(Int(clamped.rounded())) pt" : "V6.2 dock + Search lift disabled; restoring stock Y"
     }
 
     func configureBottomGradient(enabled: Bool, height: Double, mgr: laramgr) -> String {
@@ -221,10 +223,10 @@ final class StatusBarAutoFollower {
         queue.async {
             let orientation = UInt64(get_v6_active_interface_orientation(proc))
             let visible = enabled && orientation == 2
-            let r = set_v61_bottom_gradient(proc, clamped, visible ? 1 : 0)
-            if r != 0 { mgr.logmsg("(rc) V6.1 gradient immediate -> \(r)") }
+            let r = set_v62_bottom_gradient(proc, clamped, visible ? 1 : 0)
+            if r != 0 { mgr.logmsg("(rc) V6.2 gradient immediate -> \(r)") }
         }
-        return enabled ? "V6.1 bottom gradient enabled (\(Int(clamped.rounded())) pt)" : "V6.1 bottom gradient disabled"
+        return enabled ? "V6.2 bottom gradient enabled (\(Int(clamped.rounded())) pt)" : "V6.2 bottom gradient disabled"
     }
 
     func stop() -> String {
@@ -268,7 +270,7 @@ struct RemoteView: View {
     @State private var hsColumns: Int = 4
     @State private var freakyrunning: Bool = false
     @State private var freakyseq: Int = 0
-    @State private var dockLiftPoints: Double = 22.0
+    @State private var dockLiftPoints: Double = 23.0
     @State private var dockLiftEnabled: Bool = false
     @State private var bottomGradientHeight: Double = 100.0
     @State private var bottomGradientEnabled: Bool = false
@@ -373,7 +375,7 @@ struct RemoteView: View {
                         return StatusBarAutoFollower.shared.start(mgr: mgr)
                     }
                 } label: {
-                    Text("V6: Safe Auto-Follow — One Tap")
+                    Text("V6.2: Low-Churn Auto-Follow — One Tap")
                 }
 
                 Button {
@@ -381,6 +383,12 @@ struct RemoteView: View {
                     mgr.logmsg("(rc) \(msg)")
                 } label: {
                     Text("V6: Stop Auto-Follow")
+                }
+
+                Button {
+                    StatusBarAutoFollower.shared.forceSync(mgr: mgr)
+                } label: {
+                    Text("V6.2: Sync Now")
                 }
 
                 Button {
@@ -423,7 +431,7 @@ struct RemoteView: View {
                     Text("Read-Only Geometry Probe")
                 }
             } footer: {
-                Text("V6 LOCKED: the exact V3 status-bar transform that worked on-device is unchanged. V6.1 only hardens the trigger path: a cached orientation read every 400 ms, and the transform is touched only after an actual portrait flip. The silent-audio keepalive and live SpringBoard RemoteCall are still required while auto-follow is enabled.")
+                Text("V6 LOCKED: the exact proven V3 status-bar transform is unchanged. V6.2 reduces the trigger to one cached orientation read every 30 seconds (75x fewer probes than 400 ms). Use Sync Now for an immediate update. The silent-audio keepalive and live SpringBoard RemoteCall are still required while auto-follow is enabled.")
             }
 
             Section {
@@ -444,7 +452,7 @@ struct RemoteView: View {
                                                                               mgr: mgr)
                     mgr.logmsg("(rc) \(msg)")
                 } label: {
-                    Text("Enable Upside-Down Dock Lift")
+                    Text("Enable Dock + Search Lift")
                 }
 
                 Button {
@@ -454,7 +462,7 @@ struct RemoteView: View {
                                                                               mgr: mgr)
                     mgr.logmsg("(rc) \(msg)")
                 } label: {
-                    Text("Restore Stock Dock Position")
+                    Text("Restore Dock + Search Position")
                 }
 
                 Stepper(value: $bottomGradientHeight, in: 60...160, step: 10) {
@@ -489,7 +497,7 @@ struct RemoteView: View {
             } header: {
                 Text("Upside-Down Home Screen")
             } footer: {
-                Text("22 pt is the default dock lift (roughly 3–4 mm on an iPhone 12 depending on the effective logical scale). Dock/gradient updates piggy-back on V6 orientation changes and do not add another polling loop. The gradient is intentionally a simple full-width clear→black fade for this first safe pass.")
+                Text("23 pt is the default lift. V6.2 moves the Home Screen dock and its Search/page-control together so their spacing stays intact. Dock/gradient updates happen only on a detected portrait flip or when you press their buttons; they do not add polling loops. The gradient now uses a real overlay view placed behind the dock instead of a root-layer index that could disappear behind SpringBoard content.")
             }
 
             Section {
