@@ -122,48 +122,57 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("V3 RESTORED: Apply Upside-Down + Status Bar") {
+                    run("V5: Apply Working V3 in One Tap") {
                         let result = apply_v3_upside_down_status_bar(mgr.sbProc)
                         return "apply_v3_upside_down_status_bar() -> \(result)"
                     }
                 } label: {
-                    Text("V3 RESTORED: Apply Everything")
+                    Text("V5: Working V3 — One Tap")
                 }
 
                 Button {
-                    run("V3 RESTORED: Sync Status Bar to Current Orientation") {
+                    run("V5: Enable Dynamic Status Bar Auto-Follow") {
+                        let result = enable_v5_dynamic_status_bar(mgr.sbProc)
+                        return "enable_v5_dynamic_status_bar() -> \(result)"
+                    }
+                } label: {
+                    Text("V5: Enable Dynamic Auto-Follow")
+                }
+
+                Button {
+                    run("V5: Status Bar Autorotation Probe") {
+                        let result = debug_v5_status_bar_autorotation(mgr.sbProc)
+                        return "debug_v5_status_bar_autorotation() -> \(result)"
+                    }
+                } label: {
+                    Text("V5: Dynamic Status Bar Probe")
+                }
+
+                Button {
+                    run("V5: Restore Dynamic Status Bar Overrides") {
+                        let result = restore_v5_dynamic_status_bar(mgr.sbProc)
+                        return "restore_v5_dynamic_status_bar() -> \(result)"
+                    }
+                } label: {
+                    Text("V5: Restore Dynamic Overrides")
+                }
+
+                Button {
+                    run("V3/V5: Sync Status Bar to Current Orientation") {
                         let result = sync_v3_status_bar_to_active_orientation(mgr.sbProc)
                         return "sync_v3_status_bar_to_active_orientation() -> \(result)"
                     }
                 } label: {
-                    Text("V3 RESTORED: Sync Status Bar Now")
+                    Text("Fallback: Sync Current Orientation")
                 }
 
                 Button {
-                    run("V3 RESTORED: Restore Normal Status Bar") {
+                    run("V3/V5: Restore Normal Status Bar") {
                         let result = restore_status_bar(mgr.sbProc)
                         return "restore_status_bar() -> \(result)"
                     }
                 } label: {
-                    Text("V3 RESTORED: Restore Normal")
-                }
-
-                Button {
-                    run("V3 Async: Rotate Status Bar 180°") {
-                        let result = reverse_status_bar(mgr.sbProc)
-                        return "reverse_status_bar() -> \(result)"
-                    }
-                } label: {
-                    Text("V3 Diagnostic: Rotate 180° Only")
-                }
-
-                Button {
-                    run("V3 Stage 2: Move Status Bar to Opposite Edge") {
-                        let result = move_status_bar_to_opposite_edge(mgr.sbProc)
-                        return "move_status_bar_to_opposite_edge() -> \(result)"
-                    }
-                } label: {
-                    Text("V3 Diagnostic: Move Only")
+                    Text("Fallback: Restore Layer Transform")
                 }
 
                 Button {
@@ -172,20 +181,20 @@ struct RemoteView: View {
                         return "debug_status_bar_geometry() -> \(result)"
                     }
                 } label: {
-                    Text("V3 Read-Only Geometry Probe")
+                    Text("Read-Only Geometry Probe")
                 }
             } footer: {
-                Text("This is the original V3 baseline again: no V3.1 native-follow swizzles. ‘Apply Everything’ combines the proven upside-down SpringBoard patch with the exact V3 pi rotation + opposite-edge offset. ‘Sync Status Bar Now’ reads SpringBoard's current portrait orientation and applies either the V3 upside-down transform or the normal identity transform. It is deliberately manual for this revision so no new orientation hook can disturb the V3 behavior that already worked.")
+                Text("‘Working V3 — One Tap’ combines Enable Upside Down + the proven 180° status-bar rotation + the opposite-edge offset in one press. Its offset is calculated from the live status-bar and parent bounds, not hard-coded. ‘Dynamic Auto-Follow’ is a separate V5 experiment: it removes the static layer transform and enables the live status-bar window's own UIKit autorotation path, avoiding the broken V3.1 UIApplication orientation overrides. If dynamic follow misbehaves, reboot/respring and use the Working V3 button again.")
             }
 
             Section {
                 Button {
-                    run("Enable Floating Dock") {
+                    run("V5: Enable Floating Dock (Safe Main Thread)") {
                         let result = enable_floating_dock(mgr.sbProc)
                         return "enable_floating_dock() -> \(result)"
                     }
                 } label: {
-                    Text("Enable Floating Dock")
+                    Text("V5: Enable Floating Dock (Safe)")
                 }
                 
                 Button {
