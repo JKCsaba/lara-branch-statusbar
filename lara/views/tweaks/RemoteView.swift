@@ -122,33 +122,60 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("V3.1: Enable Upside Down + Auto-Follow Status Bar") {
-                        let result = enable_status_bar_orientation_following(mgr.sbProc)
-                        return "enable_status_bar_orientation_following() -> \(result)"
+                    run("V3 RESTORED: Apply Upside-Down + Status Bar") {
+                        let result = apply_v3_upside_down_status_bar(mgr.sbProc)
+                        return "apply_v3_upside_down_status_bar() -> \(result)"
                     }
                 } label: {
-                    Text("V3.1: Enable + Auto-Follow Status Bar")
+                    Text("V3 RESTORED: Apply Everything")
                 }
 
                 Button {
-                    run("V3.1: Restore Status Bar Overrides") {
+                    run("V3 RESTORED: Sync Status Bar to Current Orientation") {
+                        let result = sync_v3_status_bar_to_active_orientation(mgr.sbProc)
+                        return "sync_v3_status_bar_to_active_orientation() -> \(result)"
+                    }
+                } label: {
+                    Text("V3 RESTORED: Sync Status Bar Now")
+                }
+
+                Button {
+                    run("V3 RESTORED: Restore Normal Status Bar") {
                         let result = restore_status_bar(mgr.sbProc)
                         return "restore_status_bar() -> \(result)"
                     }
                 } label: {
-                    Text("V3.1: Restore Status Bar")
+                    Text("V3 RESTORED: Restore Normal")
                 }
 
                 Button {
-                    run("V3.1: Status Bar Geometry + Orientation") {
+                    run("V3 Async: Rotate Status Bar 180°") {
+                        let result = reverse_status_bar(mgr.sbProc)
+                        return "reverse_status_bar() -> \(result)"
+                    }
+                } label: {
+                    Text("V3 Diagnostic: Rotate 180° Only")
+                }
+
+                Button {
+                    run("V3 Stage 2: Move Status Bar to Opposite Edge") {
+                        let result = move_status_bar_to_opposite_edge(mgr.sbProc)
+                        return "move_status_bar_to_opposite_edge() -> \(result)"
+                    }
+                } label: {
+                    Text("V3 Diagnostic: Move Only")
+                }
+
+                Button {
+                    run("V3 Read-Only Status Bar Geometry") {
                         let result = debug_status_bar_geometry(mgr.sbProc)
                         return "debug_status_bar_geometry() -> \(result)"
                     }
                 } label: {
-                    Text("V3.1: Geometry + Orientation Probe")
+                    Text("V3 Read-Only Geometry Probe")
                 }
             } footer: {
-                Text("V3.1 combines the proven V3 status-bar work into one session action. It keeps Home/Lock limited to portrait + portrait-upside-down, clears the old fixed +π/+895 transform, and makes SpringBoard's status-bar window follow the active interface orientation natively. No polling and no synchronous SpringBoard-main-thread takeover are used. Rotate the Home Screen between the two portrait orientations after applying; the status bar should move to the corresponding physical top edge automatically.")
+                Text("This is the original V3 baseline again: no V3.1 native-follow swizzles. ‘Apply Everything’ combines the proven upside-down SpringBoard patch with the exact V3 pi rotation + opposite-edge offset. ‘Sync Status Bar Now’ reads SpringBoard's current portrait orientation and applies either the V3 upside-down transform or the normal identity transform. It is deliberately manual for this revision so no new orientation hook can disturb the V3 behavior that already worked.")
             }
 
             Section {

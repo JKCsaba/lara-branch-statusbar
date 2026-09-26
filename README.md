@@ -1,3 +1,5 @@
+> Status-bar experiment baseline: **V3 Restored**. See `STATUSBAR_V3_RESTORED_NOTES.md`.
+
 <div align="center">
   <br>
   <a href="https://discord.gg/gw8PcRF3Jr"><img src="https://github.com/rooootdev/lara/blob/main/lara.png?raw=true" alt="JESSI Logo" width="200"></a>
