@@ -125,6 +125,7 @@ struct lara: App {
         case .active:
             globallogger.capture()
             iconthememgr.startPendingFixupIfPossible()
+            StatusBarAutoFollower.shared.forceSync(mgr: mgr)
 
         @unknown default:
             break
@@ -133,6 +134,15 @@ struct lara: App {
 
     private func handlebg() {
         guard mgr.rcready else { return }
+
+        // V6 safe status-bar auto-follow deliberately owns the SpringBoard
+        // RemoteCall while Lara is backgrounded.  Its silent-audio keepalive
+        // keeps the app runnable so the proven V3 sync can follow orientation.
+        // Destroying RemoteCall here would stop auto-follow immediately.
+        if StatusBarAutoFollower.shared.isActive {
+            globallogger.log("(rc) V6 auto-follow active; preserving RemoteCall in background")
+            return
+        }
 
         var bgTask: UIBackgroundTaskIdentifier = .invalid
 

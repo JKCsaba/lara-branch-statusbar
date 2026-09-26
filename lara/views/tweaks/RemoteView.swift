@@ -8,6 +8,138 @@
 import SwiftUI
 import Darwin
 
+// V6 keeps the proven V3 status-bar transform and only automates the already-
+// verified manual Sync action.  The polling lives in Lara instead of installing
+// private UIKit method overrides into SpringBoard.  Lara's existing audio
+// keepalive allows this to continue while the app is in the background.
+//
+// The flag is intentionally module-global so lara.swift can avoid destroying
+// the SpringBoard RemoteCall session while auto-follow owns it.
+var laraStatusBarAutoFollowActive = false
+
+final class StatusBarAutoFollower {
+    static let shared = StatusBarAutoFollower()
+
+    private let queue = DispatchQueue(label: "lara.statusbar.v6.autofollow", qos: .userInteractive)
+    private let lock = NSLock()
+    private var timer: DispatchSourceTimer?
+    private var externalActionRunning = false
+    private var ownsKeepAlive = false
+    private var lastError: Int32 = 0
+
+    private init() {}
+
+    var isActive: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return laraStatusBarAutoFollowActive
+    }
+
+    func setExternalActionRunning(_ value: Bool) {
+        lock.lock()
+        externalActionRunning = value
+        lock.unlock()
+    }
+
+    private func shouldPoll() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return laraStatusBarAutoFollowActive && !externalActionRunning
+    }
+
+    private func ensureKeepAlive() {
+        let work = {
+            if !kaenabled {
+                toggleka()
+                self.ownsKeepAlive = kaenabled
+            }
+        }
+        if Thread.isMainThread { work() }
+        else { DispatchQueue.main.sync(execute: work) }
+    }
+
+    func start(mgr: laramgr) -> String {
+        guard mgr.rcready, let proc = mgr.sbProc else {
+            return "V6 safe auto-follow: RemoteCall is not ready"
+        }
+
+        let base = enable_v6_safe_status_bar_autofollow_base(proc)
+        guard base == 0 else {
+            return "enable_v6_safe_status_bar_autofollow_base() -> \(base)"
+        }
+
+        ensureKeepAlive()
+
+        lock.lock()
+        laraStatusBarAutoFollowActive = true
+        lastError = 0
+        let alreadyRunning = (timer != nil)
+        lock.unlock()
+
+        if !alreadyRunning {
+            let t = DispatchSource.makeTimerSource(queue: queue)
+            t.schedule(deadline: .now() + .milliseconds(200),
+                       repeating: .milliseconds(300),
+                       leeway: .milliseconds(50))
+            t.setEventHandler { [weak self, weak mgr] in
+                guard let self, let mgr else { return }
+                guard self.shouldPoll(), mgr.rcready, let proc = mgr.sbProc else { return }
+
+                let r = sync_v6_status_bar_to_active_orientation(proc, 0)
+                // 0 = orientation changed and was applied; 1 = already correct.
+                // Only log failures, and only once per distinct error code.
+                if r < 0 {
+                    self.lock.lock()
+                    let shouldLog = self.lastError != r
+                    self.lastError = r
+                    self.lock.unlock()
+                    if shouldLog {
+                        mgr.logmsg("(rc) V6 auto-follow sync error -> \(r)")
+                    }
+                } else if r == 0 {
+                    self.lock.lock()
+                    self.lastError = 0
+                    self.lock.unlock()
+                    mgr.logmsg("(rc) V6 auto-follow: orientation change applied")
+                }
+            }
+
+            lock.lock()
+            timer = t
+            lock.unlock()
+            t.resume()
+        }
+
+        return "V6 safe auto-follow ACTIVE (300ms poll, V3 geometry, keepalive=\(kaenabled))"
+    }
+
+    func forceSync(mgr: laramgr) {
+        guard isActive, mgr.rcready, let proc = mgr.sbProc else { return }
+        queue.async {
+            _ = sync_v6_status_bar_to_active_orientation(proc, 1)
+        }
+    }
+
+    func stop() -> String {
+        lock.lock()
+        laraStatusBarAutoFollowActive = false
+        let oldTimer = timer
+        timer = nil
+        let disableOwnedKeepAlive = ownsKeepAlive
+        ownsKeepAlive = false
+        lock.unlock()
+
+        oldTimer?.setEventHandler {}
+        oldTimer?.cancel()
+
+        if disableOwnedKeepAlive {
+            let work = { if kaenabled { toggleka() } }
+            if Thread.isMainThread { work() }
+            else { DispatchQueue.main.sync(execute: work) }
+        }
+
+        return "V6 safe auto-follow stopped; current status-bar transform left unchanged"
+    }
+}
+
 struct RemoteView: View {
     @ObservedObject var mgr: laramgr
     @State private var statusBarTimeFormat: String = "HH:mm"
@@ -122,52 +254,44 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("V5: Apply Working V3 in One Tap") {
+                    run("V6: Enable Safe Status Bar Auto-Follow") {
+                        return StatusBarAutoFollower.shared.start(mgr: mgr)
+                    }
+                } label: {
+                    Text("V6: Safe Auto-Follow — One Tap")
+                }
+
+                Button {
+                    let msg = StatusBarAutoFollower.shared.stop()
+                    mgr.logmsg("(rc) \(msg)")
+                } label: {
+                    Text("V6: Stop Auto-Follow")
+                }
+
+                Button {
+                    let stopMsg = StatusBarAutoFollower.shared.stop()
+                    mgr.logmsg("(rc) \(stopMsg)")
+                    run("V3: Static Upside-Down Fallback") {
                         let result = apply_v3_upside_down_status_bar(mgr.sbProc)
                         return "apply_v3_upside_down_status_bar() -> \(result)"
                     }
                 } label: {
-                    Text("V5: Working V3 — One Tap")
+                    Text("Fallback: Working V3 — Static")
                 }
 
                 Button {
-                    run("V5: Enable Dynamic Status Bar Auto-Follow") {
-                        let result = enable_v5_dynamic_status_bar(mgr.sbProc)
-                        return "enable_v5_dynamic_status_bar() -> \(result)"
-                    }
-                } label: {
-                    Text("V5: Enable Dynamic Auto-Follow")
-                }
-
-                Button {
-                    run("V5: Status Bar Autorotation Probe") {
-                        let result = debug_v5_status_bar_autorotation(mgr.sbProc)
-                        return "debug_v5_status_bar_autorotation() -> \(result)"
-                    }
-                } label: {
-                    Text("V5: Dynamic Status Bar Probe")
-                }
-
-                Button {
-                    run("V5: Restore Dynamic Status Bar Overrides") {
-                        let result = restore_v5_dynamic_status_bar(mgr.sbProc)
-                        return "restore_v5_dynamic_status_bar() -> \(result)"
-                    }
-                } label: {
-                    Text("V5: Restore Dynamic Overrides")
-                }
-
-                Button {
-                    run("V3/V5: Sync Status Bar to Current Orientation") {
-                        let result = sync_v3_status_bar_to_active_orientation(mgr.sbProc)
-                        return "sync_v3_status_bar_to_active_orientation() -> \(result)"
+                    run("V3/V6: Sync Status Bar to Current Orientation") {
+                        let result = sync_v6_status_bar_to_active_orientation(mgr.sbProc, 1)
+                        return "sync_v6_status_bar_to_active_orientation(force=1) -> \(result)"
                     }
                 } label: {
                     Text("Fallback: Sync Current Orientation")
                 }
 
                 Button {
-                    run("V3/V5: Restore Normal Status Bar") {
+                    let stopMsg = StatusBarAutoFollower.shared.stop()
+                    mgr.logmsg("(rc) \(stopMsg)")
+                    run("V3/V6: Restore Normal Status Bar") {
                         let result = restore_status_bar(mgr.sbProc)
                         return "restore_status_bar() -> \(result)"
                     }
@@ -184,7 +308,7 @@ struct RemoteView: View {
                     Text("Read-Only Geometry Probe")
                 }
             } footer: {
-                Text("‘Working V3 — One Tap’ combines Enable Upside Down + the proven 180° status-bar rotation + the opposite-edge offset in one press. Its offset is calculated from the live status-bar and parent bounds, not hard-coded. ‘Dynamic Auto-Follow’ is a separate V5 experiment: it removes the static layer transform and enables the live status-bar window's own UIKit autorotation path, avoiding the broken V3.1 UIApplication orientation overrides. If dynamic follow misbehaves, reboot/respring and use the Working V3 button again.")
+                Text("V6 keeps the exact V3 transform that worked on-device, but automatically re-runs the proven orientation sync when SpringBoard changes between normal portrait and portrait-upside-down. It does NOT install the crashing V5 UIWindow autorotation overrides. Auto-follow uses Lara's existing silent-audio keepalive and intentionally keeps the SpringBoard RemoteCall session alive while enabled. Stop Auto-Follow before destroying RemoteCall or doing unrelated long RemoteCall experiments.")
             }
 
             Section {
@@ -571,6 +695,7 @@ struct RemoteView: View {
     private func run(_ name: String, _ work: @escaping () -> String, onComplete: ((String) -> Void)? = nil) {
         guard mgr.rcready, !running else { return }
         running = true
+        StatusBarAutoFollower.shared.setExternalActionRunning(true)
         mgr.logmsg("(rc) \(name)...")
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -579,6 +704,7 @@ struct RemoteView: View {
                 self.mgr.logmsg("(rc) \(result)")
                 onComplete?(result)
                 self.running = false
+                StatusBarAutoFollower.shared.setExternalActionRunning(false)
             }
         }
     }
