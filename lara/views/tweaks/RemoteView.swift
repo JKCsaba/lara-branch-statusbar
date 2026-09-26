@@ -20,12 +20,25 @@ var laraStatusBarAutoFollowActive = false
 final class StatusBarAutoFollower {
     static let shared = StatusBarAutoFollower()
 
+    // LOCKED V6 geometry: the successful on-device transform path remains
+    // sync_v6_status_bar_to_active_orientation(..., force: 1). V6.1 only makes
+    // the *trigger* lighter: one cached orientation read per tick, and the
+    // transform runs only after a real orientation change.
     private let queue = DispatchQueue(label: "lara.statusbar.v6.autofollow", qos: .userInteractive)
     private let lock = NSLock()
     private var timer: DispatchSourceTimer?
     private var externalActionRunning = false
     private var ownsKeepAlive = false
     private var lastError: Int32 = 0
+    private var lastOrientation: UInt64 = 0
+    private var invalidOrientationStreak = 0
+
+    // Optional Home Screen accessories. They piggy-back on the same orientation
+    // event and therefore add zero extra steady-state polling.
+    private var dockLiftEnabled = false
+    private var dockLiftPoints: Double = 22.0
+    private var bottomGradientEnabled = false
+    private var bottomGradientHeight: Double = 100.0
 
     private init() {}
 
@@ -56,11 +69,53 @@ final class StatusBarAutoFollower {
         else { DispatchQueue.main.sync(execute: work) }
     }
 
+    private func accessorySnapshot() -> (dock: Bool, lift: Double, gradient: Bool, gradientHeight: Double) {
+        lock.lock(); defer { lock.unlock() }
+        return (dockLiftEnabled, dockLiftPoints, bottomGradientEnabled, bottomGradientHeight)
+    }
+
+    private func applyAccessories(proc: RemoteCall, orientation: UInt64, mgr: laramgr) {
+        let state = accessorySnapshot()
+        let upsideDown = orientation == 2
+
+        if state.dock {
+            let r = set_v61_dock_vertical_lift(proc, state.lift, upsideDown ? 1 : 0)
+            if r != 0 { mgr.logmsg("(rc) V6.1 dock lift -> \(r)") }
+        }
+
+        if state.gradient {
+            let r = set_v61_bottom_gradient(proc, state.gradientHeight, upsideDown ? 1 : 0)
+            if r != 0 { mgr.logmsg("(rc) V6.1 bottom gradient -> \(r)") }
+        }
+    }
+
+    private func syncChangedOrientation(mgr: laramgr, proc: RemoteCall, orientation: UInt64) {
+        let r = sync_v6_status_bar_to_active_orientation(proc, 1)
+        if r < 0 {
+            lock.lock()
+            let shouldLog = lastError != r
+            lastError = r
+            lock.unlock()
+            if shouldLog { mgr.logmsg("(rc) V6 auto-follow sync error -> \(r)") }
+            return
+        }
+
+        lock.lock()
+        lastOrientation = orientation
+        lastError = 0
+        invalidOrientationStreak = 0
+        lock.unlock()
+
+        applyAccessories(proc: proc, orientation: orientation, mgr: mgr)
+        mgr.logmsg("(rc) V6 auto-follow: orientation change applied")
+    }
+
     func start(mgr: laramgr) -> String {
         guard mgr.rcready, let proc = mgr.sbProc else {
             return "V6 safe auto-follow: RemoteCall is not ready"
         }
 
+        // This is the same one-tap base that is already proven perfect on-device.
         let base = enable_v6_safe_status_bar_autofollow_base(proc)
         guard base == 0 else {
             return "enable_v6_safe_status_bar_autofollow_base() -> \(base)"
@@ -68,38 +123,52 @@ final class StatusBarAutoFollower {
 
         ensureKeepAlive()
 
+        let initialOrientation = UInt64(get_v6_active_interface_orientation(proc))
+
         lock.lock()
         laraStatusBarAutoFollowActive = true
         lastError = 0
+        invalidOrientationStreak = 0
+        lastOrientation = (initialOrientation == 1 || initialOrientation == 2) ? initialOrientation : 0
         let alreadyRunning = (timer != nil)
         lock.unlock()
 
+        if initialOrientation == 1 || initialOrientation == 2 {
+            applyAccessories(proc: proc, orientation: initialOrientation, mgr: mgr)
+        }
+
         if !alreadyRunning {
             let t = DispatchSource.makeTimerSource(queue: queue)
-            t.schedule(deadline: .now() + .milliseconds(200),
-                       repeating: .milliseconds(300),
-                       leeway: .milliseconds(50))
+            // 400 ms keeps the same "instant" feel while the cached C helper
+            // reduces steady-state work to one remote objc_msgSend per tick.
+            t.schedule(deadline: .now() + .milliseconds(250),
+                       repeating: .milliseconds(400),
+                       leeway: .milliseconds(80))
             t.setEventHandler { [weak self, weak mgr] in
                 guard let self, let mgr else { return }
                 guard self.shouldPoll(), mgr.rcready, let proc = mgr.sbProc else { return }
 
-                let r = sync_v6_status_bar_to_active_orientation(proc, 0)
-                // 0 = orientation changed and was applied; 1 = already correct.
-                // Only log failures, and only once per distinct error code.
-                if r < 0 {
+                let orientation = UInt64(get_v6_active_interface_orientation(proc))
+                guard orientation == 1 || orientation == 2 else {
                     self.lock.lock()
-                    let shouldLog = self.lastError != r
-                    self.lastError = r
+                    self.invalidOrientationStreak += 1
+                    let streak = self.invalidOrientationStreak
                     self.lock.unlock()
-                    if shouldLog {
-                        mgr.logmsg("(rc) V6 auto-follow sync error -> \(r)")
+                    // Avoid log spam. A persistent invalid state normally means
+                    // SpringBoard/RemoteCall changed underneath us; stop touching it.
+                    if streak == 5 {
+                        mgr.logmsg("(rc) V6.1 auto-follow: orientation unavailable 5x; transforms skipped")
                     }
-                } else if r == 0 {
-                    self.lock.lock()
-                    self.lastError = 0
-                    self.lock.unlock()
-                    mgr.logmsg("(rc) V6 auto-follow: orientation change applied")
+                    return
                 }
+
+                self.lock.lock()
+                let previous = self.lastOrientation
+                self.invalidOrientationStreak = 0
+                self.lock.unlock()
+                guard orientation != previous else { return }
+
+                self.syncChangedOrientation(mgr: mgr, proc: proc, orientation: orientation)
             }
 
             lock.lock()
@@ -108,14 +177,54 @@ final class StatusBarAutoFollower {
             t.resume()
         }
 
-        return "V6 safe auto-follow ACTIVE (300ms poll, V3 geometry, keepalive=\(kaenabled))"
+        return "V6 safe auto-follow ACTIVE (locked V3 geometry, cached 400ms trigger, keepalive=\(kaenabled))"
     }
 
     func forceSync(mgr: laramgr) {
         guard isActive, mgr.rcready, let proc = mgr.sbProc else { return }
         queue.async {
-            _ = sync_v6_status_bar_to_active_orientation(proc, 1)
+            let orientation = UInt64(get_v6_active_interface_orientation(proc))
+            guard orientation == 1 || orientation == 2 else { return }
+            self.syncChangedOrientation(mgr: mgr, proc: proc, orientation: orientation)
         }
+    }
+
+    func configureDockLift(enabled: Bool, points: Double, mgr: laramgr) -> String {
+        let clamped = min(max(abs(points), 0.0), 40.0)
+        lock.lock()
+        dockLiftEnabled = enabled
+        dockLiftPoints = clamped
+        lock.unlock()
+
+        guard mgr.rcready, let proc = mgr.sbProc else {
+            return "V6.1 dock lift saved; RemoteCall not ready"
+        }
+        queue.async {
+            let orientation = UInt64(get_v6_active_interface_orientation(proc))
+            let upsideDown = enabled && orientation == 2
+            let r = set_v61_dock_vertical_lift(proc, clamped, upsideDown ? 1 : 0)
+            if r != 0 { mgr.logmsg("(rc) V6.1 dock lift immediate -> \(r)") }
+        }
+        return enabled ? "V6.1 dock lift enabled at \(Int(clamped.rounded())) pt" : "V6.1 dock lift disabled; restoring stock Y"
+    }
+
+    func configureBottomGradient(enabled: Bool, height: Double, mgr: laramgr) -> String {
+        let clamped = min(max(height, 40.0), 180.0)
+        lock.lock()
+        bottomGradientEnabled = enabled
+        bottomGradientHeight = clamped
+        lock.unlock()
+
+        guard mgr.rcready, let proc = mgr.sbProc else {
+            return "V6.1 gradient saved; RemoteCall not ready"
+        }
+        queue.async {
+            let orientation = UInt64(get_v6_active_interface_orientation(proc))
+            let visible = enabled && orientation == 2
+            let r = set_v61_bottom_gradient(proc, clamped, visible ? 1 : 0)
+            if r != 0 { mgr.logmsg("(rc) V6.1 gradient immediate -> \(r)") }
+        }
+        return enabled ? "V6.1 bottom gradient enabled (\(Int(clamped.rounded())) pt)" : "V6.1 bottom gradient disabled"
     }
 
     func stop() -> String {
@@ -125,6 +234,8 @@ final class StatusBarAutoFollower {
         timer = nil
         let disableOwnedKeepAlive = ownsKeepAlive
         ownsKeepAlive = false
+        lastOrientation = 0
+        invalidOrientationStreak = 0
         lock.unlock()
 
         oldTimer?.setEventHandler {}
@@ -157,6 +268,10 @@ struct RemoteView: View {
     @State private var hsColumns: Int = 4
     @State private var freakyrunning: Bool = false
     @State private var freakyseq: Int = 0
+    @State private var dockLiftPoints: Double = 22.0
+    @State private var dockLiftEnabled: Bool = false
+    @State private var bottomGradientHeight: Double = 100.0
+    @State private var bottomGradientEnabled: Bool = false
 
     private var dockMaxColumns: Int { rcdockunlimited ? 50 : 10 }
 
@@ -308,7 +423,97 @@ struct RemoteView: View {
                     Text("Read-Only Geometry Probe")
                 }
             } footer: {
-                Text("V6 keeps the exact V3 transform that worked on-device, but automatically re-runs the proven orientation sync when SpringBoard changes between normal portrait and portrait-upside-down. It does NOT install the crashing V5 UIWindow autorotation overrides. Auto-follow uses Lara's existing silent-audio keepalive and intentionally keeps the SpringBoard RemoteCall session alive while enabled. Stop Auto-Follow before destroying RemoteCall or doing unrelated long RemoteCall experiments.")
+                Text("V6 LOCKED: the exact V3 status-bar transform that worked on-device is unchanged. V6.1 only hardens the trigger path: a cached orientation read every 400 ms, and the transform is touched only after an actual portrait flip. The silent-audio keepalive and live SpringBoard RemoteCall are still required while auto-follow is enabled.")
+            }
+
+            Section {
+                Stepper(value: $dockLiftPoints, in: 12...30, step: 1) {
+                    HStack {
+                        Text("Upside-down dock lift")
+                        Spacer()
+                        Text("\(Int(dockLiftPoints)) pt")
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+
+                Button {
+                    dockLiftEnabled = true
+                    let msg = StatusBarAutoFollower.shared.configureDockLift(enabled: true,
+                                                                              points: dockLiftPoints,
+                                                                              mgr: mgr)
+                    mgr.logmsg("(rc) \(msg)")
+                } label: {
+                    Text("Enable Upside-Down Dock Lift")
+                }
+
+                Button {
+                    dockLiftEnabled = false
+                    let msg = StatusBarAutoFollower.shared.configureDockLift(enabled: false,
+                                                                              points: dockLiftPoints,
+                                                                              mgr: mgr)
+                    mgr.logmsg("(rc) \(msg)")
+                } label: {
+                    Text("Restore Stock Dock Position")
+                }
+
+                Stepper(value: $bottomGradientHeight, in: 60...160, step: 10) {
+                    HStack {
+                        Text("Bottom gradient height")
+                        Spacer()
+                        Text("\(Int(bottomGradientHeight)) pt")
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+
+                Button {
+                    bottomGradientEnabled = true
+                    let msg = StatusBarAutoFollower.shared.configureBottomGradient(enabled: true,
+                                                                                    height: bottomGradientHeight,
+                                                                                    mgr: mgr)
+                    mgr.logmsg("(rc) \(msg)")
+                } label: {
+                    Text("Enable Upside-Down Black Gradient")
+                }
+
+                Button {
+                    bottomGradientEnabled = false
+                    let msg = StatusBarAutoFollower.shared.configureBottomGradient(enabled: false,
+                                                                                    height: bottomGradientHeight,
+                                                                                    mgr: mgr)
+                    mgr.logmsg("(rc) \(msg)")
+                } label: {
+                    Text("Disable Bottom Gradient")
+                }
+            } header: {
+                Text("Upside-Down Home Screen")
+            } footer: {
+                Text("22 pt is the default dock lift (roughly 3–4 mm on an iPhone 12 depending on the effective logical scale). Dock/gradient updates piggy-back on V6 orientation changes and do not add another polling loop. The gradient is intentionally a simple full-width clear→black fade for this first safe pass.")
+            }
+
+            Section {
+                Button {
+                    run("V6.1: Block Shortcuts Notifications") {
+                        let r = set_v61_shortcuts_notifications_blocked(mgr.sbProc, 1)
+                        return "set_v61_shortcuts_notifications_blocked(1) -> \(r)"
+                    }
+                } label: {
+                    Text("Block Shortcuts Notifications")
+                }
+
+                Button {
+                    run("V6.1: Restore Shortcuts Notifications") {
+                        let r = set_v61_shortcuts_notifications_blocked(mgr.sbProc, 0)
+                        return "set_v61_shortcuts_notifications_blocked(0) -> \(r)"
+                    }
+                } label: {
+                    Text("Restore Shortcuts Notifications")
+                }
+            } header: {
+                Text("Shortcuts Notifications")
+            } footer: {
+                Text("This edits only the saved BulletinBoard section settings for com.apple.shortcuts and persists them through BBServer. It does not install a global notification hook. If Block returns 0, respring once so BBServer reloads the saved section state, then test a normal automation and the post-reboot Shortcuts bulletin.")
             }
 
             Section {
