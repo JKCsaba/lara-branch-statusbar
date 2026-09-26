@@ -1,3 +1,7 @@
+## V6.3.2 Candidate B branch
+
+Candidate A was absent on the target iPhone 12 / iOS 18.4 runtime. V6.3.2 keeps the crash-hardened no-polling/no-bulk-scan design and tests only `-[SBIconController _updateContentViewOrientationAndLayoutIfNeeded]`. See `STATUSBAR_V6_3_2_CANDIDATE_B_NOTES.md`.
+
 ## V6.3 foreground event-discovery branch
 
 This source disables the V6.2 background RemoteCall watchdog/keepalive and adds bounded SpringBoard orientation-method discovery plus guarded manual candidate invocation. See `STATUSBAR_V6_3_EVENT_DISCOVERY_NOTES.md`.
