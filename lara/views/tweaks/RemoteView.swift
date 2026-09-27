@@ -149,21 +149,21 @@ struct RemoteView: View {
                 }
 
                 Button {
-                    run("Add Notch Mask") {
-                        let result = add_home_screen_notch_mask(mgr.sbProc)
-                        return "add_home_screen_notch_mask() -> \(result)"
+                    run("Add Gradient") {
+                        let result = add_notch_gradient(mgr.sbProc)
+                        return "add_notch_gradient() -> \(result)"
                     }
                 } label: {
-                    Text("Add Notch Mask")
+                    Text("Add Gradient")
                 }
 
                 Button {
-                    run("Remove Notch Mask") {
-                        let result = remove_home_screen_notch_mask(mgr.sbProc)
-                        return "remove_home_screen_notch_mask() -> \(result)"
+                    run("Remove Gradient") {
+                        let result = remove_notch_gradient(mgr.sbProc)
+                        return "remove_notch_gradient() -> \(result)"
                     }
                 } label: {
-                    Text("Remove Notch Mask")
+                    Text("Remove Gradient")
                 }
             }
 
