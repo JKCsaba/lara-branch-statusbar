@@ -29,16 +29,6 @@ rm -rf "$PWD/build/Payload"
 mkdir -p "$PWD/build/Payload"
 cp -R "$APP_PATH" "$PWD/build/Payload/"
 
-# A separate image supplies executable SpringBoard callbacks after Lara exits.
-# Its architecture and signature must match the phone and the sideloaded app.
-mkdir -p "$PWD/build/Payload/lara.app/Frameworks"
-xcrun --sdk iphoneos clang -arch arm64e -dynamiclib -fobjc-arc -fblocks \
-  -miphoneos-version-min=18.0 -O2 \
-  -framework Foundation -framework UIKit -framework QuartzCore \
-  -Wl,-install_name,@rpath/LaraRotationHook.dylib \
-  RotationHook/LaraRotationHook.m \
-  -o "$PWD/build/Payload/lara.app/Frameworks/LaraRotationHook.dylib"
-
 plutil -replace UIFileSharingEnabled -bool YES "$PWD/build/Payload/lara.app/Info.plist"
 
 if ! command -v ldid >/dev/null 2>&1; then
@@ -46,7 +36,6 @@ if ! command -v ldid >/dev/null 2>&1; then
   exit 1
 fi
 ldid -SConfig/lara.entitlements "$PWD/build/Payload/lara.app/lara"
-ldid -SConfig/lara.entitlements "$PWD/build/Payload/lara.app/Frameworks/LaraRotationHook.dylib"
 (cd "$PWD/build" && /usr/bin/zip -qry lara.ipa Payload)
 
 echo

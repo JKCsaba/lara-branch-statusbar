@@ -301,32 +301,6 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("Install native rotation hook") {
-                        guard let path = Bundle.main.privateFrameworksPath.map({ $0 + "/LaraRotationHook.dylib" }),
-                              FileManager.default.fileExists(atPath: path) else {
-                            return "Rotation runtime missing from app Frameworks"
-                        }
-                        let result = path.withCString { lara_install_rotation_hook(mgr.sbProc, $0) }
-                        return "lara_install_rotation_hook() -> \(result)"
-                    }
-                } label: {
-                    Text("Install Native Status Bar + Dock Rotation")
-                }
-
-                Button(role: .destructive) {
-                    run("Remove native rotation hook") {
-                        guard let path = Bundle.main.privateFrameworksPath.map({ $0 + "/LaraRotationHook.dylib" }),
-                              FileManager.default.fileExists(atPath: path) else {
-                            return "Rotation runtime missing from app Frameworks"
-                        }
-                        let result = path.withCString { lara_remove_rotation_hook(mgr.sbProc, $0) }
-                        return "lara_remove_rotation_hook() -> \(result)"
-                    }
-                } label: {
-                    Text("Remove Native Rotation Hook")
-                }
-
-                Button {
                     run("V6.3.6: Apply Native Masks Only") {
                         let result = v636_apply_native_masks_only(mgr.sbProc)
                         return "v636_apply_native_masks_only() -> \(result)"
@@ -423,6 +397,15 @@ struct RemoteView: View {
                     }
                 } label: {
                     Text("V6.3.4: Apply Status Bar + Dock From Orientation")
+                }
+
+                Button {
+                    run("One-shot V3 Status Bar + Stock Dock") {
+                        let result = sync_v3_status_and_v61_dock_once(mgr.sbProc)
+                        return "sync_v3_status_and_v61_dock_once() -> \(result)"
+                    }
+                } label: {
+                    Text("One-shot V3 Status Bar + Stock Dock")
                 }
 
                 Button {
