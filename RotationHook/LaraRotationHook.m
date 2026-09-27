@@ -41,7 +41,7 @@ static void ApplyVisuals(void) {
     CGRect placement = parent ? parent.bounds : [UIScreen mainScreen].bounds;
     if (bar && (!inverted || (bar.bounds.size.height > 0 && placement.size.height > 1))) {
         // Same absolute KVC components as V3-restored; bounds, never frame.
-        CGFloat y = inverted ? CGRectGetHeight(placement) - CGRectGetHeight(bar.bounds) : 0;
+        CGFloat y = inverted ? placement.size.height - bar.bounds.size.height : 0;
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
         [bar.layer setValue:@(inverted ? M_PI : 0) forKeyPath:@"transform.rotation.z"];
