@@ -109,7 +109,7 @@ final class StatusBarAutoFollower {
     func start(mgr: laramgr) -> String {
         // Hard-disabled in the V6.3 build.  This prevents any stale/hidden call
         // site from recreating the unstable background RemoteCall watchdog.
-        return "V6.2 auto-follow is disabled in V6.3.4; use callback capture / native refresh / explicit orientation-driven apply"
+        return "V6.2 auto-follow is disabled in V6.3.5; use the SpringBoard-side native rotation hook"
     }
 
     func forceSync(mgr: laramgr) {
@@ -301,6 +301,33 @@ struct RemoteView: View {
 
             Section {
                 Button {
+                    run("V6.3.5: Enable Automatic Native Rotation") {
+                        let result = v635_enable_native_rotation_hook(mgr.sbProc)
+                        return "v635_enable_native_rotation_hook() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.5: Enable Automatic Native Rotation")
+                }
+
+                Button {
+                    run("V6.3.5: Force Native Refresh") {
+                        let result = v635_force_native_refresh(mgr.sbProc)
+                        return "v635_force_native_refresh() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.5: Force Native Refresh")
+                }
+
+                Button(role: .destructive) {
+                    run("V6.3.5: Disable + Restore Hook") {
+                        let result = v635_disable_native_rotation_hook(mgr.sbProc)
+                        return "v635_disable_native_rotation_hook() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.5: Disable + Restore Hook")
+                }
+
+                Button {
                     run("V6.3: Prepare Rotation Baseline") {
                         let result = v63_prepare_rotation_baseline(mgr.sbProc)
                         return "v63_prepare_rotation_baseline() -> \(result)"
@@ -399,9 +426,9 @@ struct RemoteView: View {
                     Text("Read-Only Geometry Probe")
                 }
             } header: {
-                Text("Status Bar V6.3.4 Callback Capture")
+                Text("Status Bar V6.3.5 Native Hook")
             } footer: {
-                Text("V6.3.4 does the callback search in one build. Capture Callback Map checks a fixed bounded set of live status-bar/window/scene/Home Screen callbacks without method enumeration or remote metadata-string reads. Arm Best Callback Detector temporarily replaces only the best concrete callback with a retain-count marker; rotate exactly once, reopen Lara, then immediately use Check + Restore. Native Rotation Refresh Pack tests UIKit-owned refresh/layout only. Apply Status Bar + Dock From Orientation is the control that drives both known-good Lara transforms from active orientation 1/2. No timer or background RemoteCall keepalive is used.")
+                Text("V6.3.5 is the automatic path. Enable installs a one-shot SpringBoard-side event hook using the root-folder rotation callback confirmed by V6.3.4 plus native UIKit orientation notifications. Status bar and stock dock are asked to relayout in-process on each real orientation transition. Lara does not poll, run a watchdog, or keep RemoteCall alive in the background. The Search pill is intentionally not modified in this build. The V6.3.4 controls below remain only as diagnostics/fallbacks.")
             }
 
             Section {

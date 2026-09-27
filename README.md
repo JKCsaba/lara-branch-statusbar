@@ -1,3 +1,7 @@
+## V6.3.5 native rotation hook branch
+
+Physical-device V6.3.4 testing confirmed that SpringBoard commits `activeInterfaceOrientation` as `1`/`2`, that the live root-folder controller receives `viewWillTransitionToSize:withTransitionCoordinator:` during the real Home Screen rotation, and that the native refresh pack can correct the status-bar path in upside-down portrait. V6.3.5 turns that into a one-tap SpringBoard-side event path: no Lara polling timer, no background keepalive, and no persistent RemoteCall dependency. It patches only the live orientation policy/callback path, registers retained `NSInvocation` proxies for native orientation notifications, and asks the status bar/Home Screen/stock dock to relayout through existing UIKit methods. The Search pill is intentionally not modified. See `STATUSBAR_V6_3_5_NATIVE_HOOK_NOTES.md`.
+
 ## V6.3.4 callback-capture branch
 
 V6.3.3 confirmed that SpringBoard's native `activeInterfaceOrientation` changes from `1` to `2` when the iPhone 12 rotates upside-down, while Candidate C is absent. V6.3.4 replaces the one-candidate-per-build loop with one bounded callback map, a temporary one-rotation firing detector for the best concrete callback override, a native refresh pack, and a control that applies the known-good status-bar + Dock/Search geometry from the current orientation. See `STATUSBAR_V6_3_4_CALLBACK_CAPTURE_NOTES.md`.
