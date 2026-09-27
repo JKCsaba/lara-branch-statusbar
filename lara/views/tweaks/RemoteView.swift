@@ -9,7 +9,7 @@ import SwiftUI
 import Darwin
 
 // Legacy V6.2 helper retained for the one-shot Dock/Search/gradient controls.
-// V6.3.5 deliberately disables its old status-bar watchdog: no timer, no audio
+// V6.3 deliberately disables its old status-bar watchdog: no timer, no audio
 // keepalive, and no background RemoteCall ownership are used by the V6.3 path.
 var laraStatusBarAutoFollowActive = false
 
@@ -109,7 +109,7 @@ final class StatusBarAutoFollower {
     func start(mgr: laramgr) -> String {
         // Hard-disabled in the V6.3 build.  This prevents any stale/hidden call
         // site from recreating the unstable background RemoteCall watchdog.
-        return "V6.2 auto-follow is disabled in V6.3.5; use Native Live Rotation"
+        return "V6.2 auto-follow is disabled in V6.3.6; use the minimal native orientation re-evaluation path"
     }
 
     func forceSync(mgr: laramgr) {
@@ -301,44 +301,143 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("V6.3.5: Enable Native Live Rotation") {
-                        let result = v635_enable_native_live_rotation(mgr.sbProc)
-                        return "v635_enable_native_live_rotation() -> \(result)"
+                    run("V6.3.6: Apply Native Masks Only") {
+                        let result = v636_apply_native_masks_only(mgr.sbProc)
+                        return "v636_apply_native_masks_only() -> \(result)"
                     }
                 } label: {
-                    Text("V6.3.5: Enable Native Live Rotation")
+                    Text("V6.3.6: Apply Native Masks Only")
                 }
 
                 Button {
-                    run("V6.3.5: Native Refresh Now") {
-                        let result = v635_refresh_native_live_rotation_now(mgr.sbProc)
-                        return "v635_refresh_native_live_rotation_now() -> \(result)"
+                    run("V6.3.6: Enable Device Event Re-evaluation") {
+                        let result = v636_enable_device_orientation_reevaluation(mgr.sbProc)
+                        return "v636_enable_device_orientation_reevaluation() -> \(result)"
                     }
                 } label: {
-                    Text("V6.3.5: Native Refresh Now")
+                    Text("V6.3.6: Enable Device Event Re-evaluation")
                 }
 
                 Button {
-                    run("V6.3.5: Remove Live Observers") {
-                        let result = v635_disable_native_live_rotation_observers(mgr.sbProc)
-                        return "v635_disable_native_live_rotation_observers() -> \(result)"
+                    run("V6.3.6: Force Orientation Re-evaluation") {
+                        let result = v636_force_orientation_reevaluation(mgr.sbProc)
+                        return "v636_force_orientation_reevaluation() -> \(result)"
                     }
                 } label: {
-                    Text("V6.3.5: Remove Live Observers")
+                    Text("V6.3.6: Force Orientation Re-evaluation")
+                }
+
+                Button(role: .destructive) {
+                    run("V6.3.6: Disable + Restore V6.3.6") {
+                        let result = v636_disable_device_orientation_reevaluation(mgr.sbProc)
+                        return "v636_disable_device_orientation_reevaluation() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.6: Disable + Restore V6.3.6")
                 }
 
                 Button {
-                    run("V6.3.5: Probe Live Orientation") {
+                    run("V6.3: Prepare Rotation Baseline") {
+                        let result = v63_prepare_rotation_baseline(mgr.sbProc)
+                        return "v63_prepare_rotation_baseline() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3: Prepare Rotation Baseline")
+                }
+
+                Button {
+                    run("V6.3: Probe Live Orientation State") {
                         let result = v63_probe_orientation_state(mgr.sbProc)
                         return "v63_probe_orientation_state() -> \(result)"
                     }
                 } label: {
-                    Text("Probe Live Orientation (1 / 2)")
+                    Text("V6.3: Probe Live Orientation State")
+                }
+
+                Button {
+                    run("V6.3.4: Capture Callback Map") {
+                        let result = v634_capture_rotation_callback_map(mgr.sbProc)
+                        return "v634_capture_rotation_callback_map() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.4: Capture Callback Map")
+                }
+
+                Button {
+                    run("V6.3.4: Arm Best Callback Detector") {
+                        let result = v634_arm_best_callback_detector(mgr.sbProc)
+                        return "v634_arm_best_callback_detector() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.4: Arm Best Callback Detector")
+                }
+
+                Button {
+                    run("V6.3.4: Check + Restore Callback Detector") {
+                        let result = v634_check_and_restore_best_callback_detector(mgr.sbProc)
+                        return "v634_check_and_restore_best_callback_detector() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.4: Check + Restore Callback Detector")
+                }
+
+                Button {
+                    run("V6.3.4: Native Rotation Refresh Pack") {
+                        let result = v634_run_native_orientation_refresh_pack(mgr.sbProc)
+                        return "v634_run_native_orientation_refresh_pack() -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.4: Native Rotation Refresh Pack")
+                }
+
+                Button {
+                    run("V6.3.4: Apply Status Bar + Dock From Orientation") {
+                        let result = v634_apply_statusbar_and_dock_for_current_orientation(mgr.sbProc, dockLiftPoints)
+                        return "v634_apply_statusbar_and_dock_for_current_orientation(lift=\(dockLiftPoints)) -> \(result)"
+                    }
+                } label: {
+                    Text("V6.3.4: Apply Status Bar + Dock From Orientation")
+                }
+
+                Button {
+                    run("V6.3: Manual Known-Good V6 Sync") {
+                        let result = sync_v6_status_bar_to_active_orientation(mgr.sbProc, 1)
+                        return "sync_v6_status_bar_to_active_orientation(force=1) -> \(result)"
+                    }
+                } label: {
+                    Text("Fallback: Manual Known-Good V6 Sync")
+                }
+
+                Button {
+                    run("V3: Static Upside-Down Fallback") {
+                        let result = apply_v3_upside_down_status_bar(mgr.sbProc)
+                        return "apply_v3_upside_down_status_bar() -> \(result)"
+                    }
+                } label: {
+                    Text("Fallback: Working V3 — Static")
+                }
+
+                Button {
+                    run("V3/V6: Restore Normal Status Bar") {
+                        let result = restore_status_bar(mgr.sbProc)
+                        return "restore_status_bar() -> \(result)"
+                    }
+                } label: {
+                    Text("Fallback: Restore Layer Transform")
+                }
+
+                Button {
+                    run("V3 Read-Only Status Bar Geometry") {
+                        let result = debug_status_bar_geometry(mgr.sbProc)
+                        return "debug_status_bar_geometry() -> \(result)"
+                    }
+                } label: {
+                    Text("Read-Only Geometry Probe")
                 }
             } header: {
-                Text("Status Bar + Dock V6.3.5 Native Live Rotation")
+                Text("Status Bar V6.3.6 Minimal Native Re-evaluation")
             } footer: {
-                Text("One-time setup only. V6.3.5 keeps Lara's original upside-down policy patch, gives the two System Aperture controllers portrait+upside-down support, then installs event-driven SpringBoard-side NSInvocation observers for native orientation/status-bar notifications. The same UIKit layout/refresh actions that worked in V6.3.4 are run on each rotation. There is no Lara timer, no CoreMotion polling loop, no silent-audio keepalive, and no background RemoteCall dependency. Search is intentionally untouched; this build handles status bar rotation and the stock Dock position only.")
+                Text("V6.3.6 removes both V6.3.5 failure paths: it does not replace the root-folder transition callback and it does not subscribe to status-bar/frame-change notifications. Test Masks Only first after a clean respring. If Home Screen rotation remains normal, enable the UIDevice-only re-evaluation observers. There is no Lara polling, watchdog, or background RemoteCall keepalive. V6.3.4 controls remain diagnostics/fallbacks.")
             }
 
             Section {
@@ -404,7 +503,7 @@ struct RemoteView: View {
             } header: {
                 Text("Upside-Down Home Screen")
             } footer: {
-                Text("Legacy one-shot accessories only. V6.3.5 already lets SpringBoard own the live stock-Dock position, and it intentionally does not move Search. Leave Dock + Search Lift disabled when testing V6.3.5; these buttons remain only as manual fallback/debug controls.")
+                Text("23 pt is the default lift. In V6.3 there is no orientation watchdog, so these accessory controls apply only to the orientation that is current when you press them. Keep them disabled while isolating status-bar/event candidates; test them separately after the orientation hook path is known.")
             }
 
             Section {
