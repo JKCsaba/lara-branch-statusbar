@@ -301,6 +301,30 @@ struct RemoteView: View {
 
             Section {
                 Button {
+                    run("Apply Upside-Down Status Bar + Dock") {
+                        let result = apply_manual_upside_down_visuals(mgr.sbProc)
+                        return "apply_manual_upside_down_visuals() -> \(result)"
+                    }
+                } label: {
+                    Text("Apply Upside-Down Status Bar + Dock")
+                }
+
+                Button {
+                    run("Restore Status Bar + Dock") {
+                        let result = restore_manual_upside_down_visuals(mgr.sbProc)
+                        return "restore_manual_upside_down_visuals() -> \(result)"
+                    }
+                } label: {
+                    Text("Restore Status Bar + Dock")
+                }
+            } header: {
+                Text("Manual Status Bar + Dock")
+            } footer: {
+                Text("Applies the proven V3 status-bar position and V6.1 stock Dock lift. Rotate the Home Screen using Lara's existing upside-down setting, then press Apply. Press Restore for normal placement. These buttons do not change orientation policy or follow rotation automatically.")
+            }
+
+            Section {
+                Button {
                     run("V6.3.6: Apply Native Masks Only") {
                         let result = v636_apply_native_masks_only(mgr.sbProc)
                         return "v636_apply_native_masks_only() -> \(result)"
@@ -397,15 +421,6 @@ struct RemoteView: View {
                     }
                 } label: {
                     Text("V6.3.4: Apply Status Bar + Dock From Orientation")
-                }
-
-                Button {
-                    run("One-shot V3 Status Bar + Stock Dock") {
-                        let result = sync_v3_status_and_v61_dock_once(mgr.sbProc)
-                        return "sync_v3_status_and_v61_dock_once() -> \(result)"
-                    }
-                } label: {
-                    Text("One-shot V3 Status Bar + Stock Dock")
                 }
 
                 Button {
