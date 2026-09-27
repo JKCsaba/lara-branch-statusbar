@@ -117,7 +117,9 @@ class SpringboardColorManager {
                     
                     let result = laramgr.shared.lara_overwritefile(target: "\(fileFolders[forType]!)\(file)\(fileExt[forType]!)", data: replacementFile)
                     
-                    if !result.ok {
+                    if result.ok {
+                        throw "successfully reverted files"
+                    } else {
                         throw "failed to overwrite with replacement file!"
                     }
                 } else {
