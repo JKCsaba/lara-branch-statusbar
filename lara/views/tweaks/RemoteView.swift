@@ -147,6 +147,24 @@ struct RemoteView: View {
                 } label: {
                     Text("Restore Status Bar + Dock")
                 }
+
+                Button {
+                    run("Add Notch Mask") {
+                        let result = add_home_screen_notch_mask(mgr.sbProc)
+                        return "add_home_screen_notch_mask() -> \(result)"
+                    }
+                } label: {
+                    Text("Add Notch Mask")
+                }
+
+                Button {
+                    run("Remove Notch Mask") {
+                        let result = remove_home_screen_notch_mask(mgr.sbProc)
+                        return "remove_home_screen_notch_mask() -> \(result)"
+                    }
+                } label: {
+                    Text("Remove Notch Mask")
+                }
             }
 
             Section {
