@@ -134,10 +134,10 @@ struct lara: App {
     private func handlebg() {
         guard mgr.rcready else { return }
 
-        // V6.3 is deliberately foreground-only.  Do not preserve the invasive
-        // SpringBoard RemoteCall session when Lara leaves the foreground.  Any
-        // one-time SpringBoard method swizzles already installed remain in that
-        // process; only Lara's RemoteCall control channel is torn down here.
+        // V6.3.5 keeps Lara itself foreground-only.  Do not preserve the RemoteCall
+        // session when Lara leaves the foreground.  The V6.3.5 notification
+        // observers and one-time orientation policy changes live in SpringBoard,
+        // so only Lara's control channel is torn down here.
 
         var bgTask: UIBackgroundTaskIdentifier = .invalid
 
