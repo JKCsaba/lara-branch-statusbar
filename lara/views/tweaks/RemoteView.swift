@@ -8,181 +8,6 @@
 import SwiftUI
 import Darwin
 
-// Legacy V6.2 helper retained for the one-shot Dock/Search/gradient controls.
-// V6.3 deliberately disables its old status-bar watchdog: no timer, no audio
-// keepalive, and no background RemoteCall ownership are used by the V6.3 path.
-var laraStatusBarAutoFollowActive = false
-
-final class StatusBarAutoFollower {
-    static let shared = StatusBarAutoFollower()
-
-    // LOCKED V6 geometry: the successful on-device transform path remains
-    // sync_v6_status_bar_to_active_orientation(..., force: 1). V6.1 only makes
-    // the *trigger* lighter: one cached orientation read per tick, and the
-    // transform runs only after a real orientation change.
-    private let queue = DispatchQueue(label: "lara.statusbar.v6.autofollow", qos: .utility)
-    private let lock = NSLock()
-    private var timer: DispatchSourceTimer?
-    private var externalActionRunning = false
-    private var ownsKeepAlive = false
-    private var lastError: Int32 = 0
-    private var lastOrientation: UInt64 = 0
-    private var invalidOrientationStreak = 0
-
-    // Optional Home Screen accessories. They piggy-back on the same orientation
-    // event and therefore add zero extra steady-state polling.
-    private var dockLiftEnabled = false
-    private var dockLiftPoints: Double = 23.0
-    private var bottomGradientEnabled = false
-    private var bottomGradientHeight: Double = 100.0
-
-    private init() {}
-
-    var isActive: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return laraStatusBarAutoFollowActive
-    }
-
-    func setExternalActionRunning(_ value: Bool) {
-        lock.lock()
-        externalActionRunning = value
-        lock.unlock()
-    }
-
-    private func shouldPoll() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return laraStatusBarAutoFollowActive && !externalActionRunning
-    }
-
-    private func ensureKeepAlive() {
-        let work = {
-            if !kaenabled {
-                toggleka()
-                self.ownsKeepAlive = kaenabled
-            }
-        }
-        if Thread.isMainThread { work() }
-        else { DispatchQueue.main.sync(execute: work) }
-    }
-
-    private func accessorySnapshot() -> (dock: Bool, lift: Double, gradient: Bool, gradientHeight: Double) {
-        lock.lock(); defer { lock.unlock() }
-        return (dockLiftEnabled, dockLiftPoints, bottomGradientEnabled, bottomGradientHeight)
-    }
-
-    private func applyAccessories(proc: RemoteCall, orientation: UInt64, mgr: laramgr) {
-        let state = accessorySnapshot()
-        let upsideDown = orientation == 2
-
-        if state.dock {
-            let r = set_v62_dock_and_search_vertical_lift(proc, state.lift, upsideDown ? 1 : 0)
-            if r != 0 { mgr.logmsg("(rc) V6.2 dock/search lift -> \(r)") }
-        }
-
-        if state.gradient {
-            let r = set_v62_bottom_gradient(proc, state.gradientHeight, upsideDown ? 1 : 0)
-            if r != 0 { mgr.logmsg("(rc) V6.2 bottom gradient -> \(r)") }
-        }
-    }
-
-    private func syncChangedOrientation(mgr: laramgr, proc: RemoteCall, orientation: UInt64) {
-        let r = sync_v6_status_bar_to_active_orientation(proc, 1)
-        if r < 0 {
-            lock.lock()
-            let shouldLog = lastError != r
-            lastError = r
-            lock.unlock()
-            if shouldLog { mgr.logmsg("(rc) V6 auto-follow sync error -> \(r)") }
-            return
-        }
-
-        lock.lock()
-        lastOrientation = orientation
-        lastError = 0
-        invalidOrientationStreak = 0
-        lock.unlock()
-
-        applyAccessories(proc: proc, orientation: orientation, mgr: mgr)
-        mgr.logmsg("(rc) V6 auto-follow: orientation change applied")
-    }
-
-    func start(mgr: laramgr) -> String {
-        // Hard-disabled in the V6.3 build.  This prevents any stale/hidden call
-        // site from recreating the unstable background RemoteCall watchdog.
-        return "V6.2 auto-follow is disabled in V6.3.6; use the minimal native orientation re-evaluation path"
-    }
-
-    func forceSync(mgr: laramgr) {
-        guard isActive, mgr.rcready, let proc = mgr.sbProc else { return }
-        queue.async {
-            let orientation = UInt64(get_v6_active_interface_orientation(proc))
-            guard orientation == 1 || orientation == 2 else { return }
-            self.syncChangedOrientation(mgr: mgr, proc: proc, orientation: orientation)
-        }
-    }
-
-    func configureDockLift(enabled: Bool, points: Double, mgr: laramgr) -> String {
-        let clamped = min(max(abs(points), 0.0), 40.0)
-        lock.lock()
-        dockLiftEnabled = enabled
-        dockLiftPoints = clamped
-        lock.unlock()
-
-        guard mgr.rcready, let proc = mgr.sbProc else {
-            return "V6.1 dock lift saved; RemoteCall not ready"
-        }
-        queue.async {
-            let orientation = UInt64(get_v6_active_interface_orientation(proc))
-            let upsideDown = enabled && orientation == 2
-            let r = set_v62_dock_and_search_vertical_lift(proc, clamped, upsideDown ? 1 : 0)
-            if r != 0 { mgr.logmsg("(rc) V6.2 dock/search lift immediate -> \(r)") }
-        }
-        return enabled ? "V6.2 dock + Search lift enabled at \(Int(clamped.rounded())) pt" : "V6.2 dock + Search lift disabled; restoring stock Y"
-    }
-
-    func configureBottomGradient(enabled: Bool, height: Double, mgr: laramgr) -> String {
-        let clamped = min(max(height, 40.0), 180.0)
-        lock.lock()
-        bottomGradientEnabled = enabled
-        bottomGradientHeight = clamped
-        lock.unlock()
-
-        guard mgr.rcready, let proc = mgr.sbProc else {
-            return "V6.1 gradient saved; RemoteCall not ready"
-        }
-        queue.async {
-            let orientation = UInt64(get_v6_active_interface_orientation(proc))
-            let visible = enabled && orientation == 2
-            let r = set_v62_bottom_gradient(proc, clamped, visible ? 1 : 0)
-            if r != 0 { mgr.logmsg("(rc) V6.2 gradient immediate -> \(r)") }
-        }
-        return enabled ? "V6.2 bottom gradient enabled (\(Int(clamped.rounded())) pt)" : "V6.2 bottom gradient disabled"
-    }
-
-    func stop() -> String {
-        lock.lock()
-        laraStatusBarAutoFollowActive = false
-        let oldTimer = timer
-        timer = nil
-        let disableOwnedKeepAlive = ownsKeepAlive
-        ownsKeepAlive = false
-        lastOrientation = 0
-        invalidOrientationStreak = 0
-        lock.unlock()
-
-        oldTimer?.setEventHandler {}
-        oldTimer?.cancel()
-
-        if disableOwnedKeepAlive {
-            let work = { if kaenabled { toggleka() } }
-            if Thread.isMainThread { work() }
-            else { DispatchQueue.main.sync(execute: work) }
-        }
-
-        return "V6 safe auto-follow stopped; current status-bar transform left unchanged"
-    }
-}
-
 struct RemoteView: View {
     @ObservedObject var mgr: laramgr
     @State private var statusBarTimeFormat: String = "HH:mm"
@@ -200,10 +25,6 @@ struct RemoteView: View {
     @State private var hsColumns: Int = 4
     @State private var freakyrunning: Bool = false
     @State private var freakyseq: Int = 0
-    @State private var dockLiftPoints: Double = 23.0
-    @State private var dockLiftEnabled: Bool = false
-    @State private var bottomGradientHeight: Double = 100.0
-    @State private var bottomGradientEnabled: Bool = false
 
     private var dockMaxColumns: Int { rcdockunlimited ? 50 : 10 }
 
@@ -301,267 +122,41 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("Apply Upside-Down Status Bar + Dock") {
-                        let result = apply_manual_upside_down_visuals(mgr.sbProc)
-                        return "apply_manual_upside_down_visuals() -> \(result)"
+                    run("Enable Upside Down") {
+                        let result = enable_upside_down(mgr.sbProc)
+                        return "enable_upside_down() -> \(result)"
                     }
                 } label: {
-                    Text("Apply Upside-Down Status Bar + Dock")
+                    Text("Enable Upside Down")
+                }
+
+                Button {
+                    run("Flip Status Bar + Lift Dock") {
+                        let result = apply_manual_status_and_dock(mgr.sbProc)
+                        return "apply_manual_status_and_dock() -> \(result)"
+                    }
+                } label: {
+                    Text("Flip Status Bar + Lift Dock")
                 }
 
                 Button {
                     run("Restore Status Bar + Dock") {
-                        let result = restore_manual_upside_down_visuals(mgr.sbProc)
-                        return "restore_manual_upside_down_visuals() -> \(result)"
+                        let result = restore_manual_status_and_dock(mgr.sbProc)
+                        return "restore_manual_status_and_dock() -> \(result)"
                     }
                 } label: {
                     Text("Restore Status Bar + Dock")
                 }
-            } header: {
-                Text("Manual Status Bar + Dock")
-            } footer: {
-                Text("Applies the proven V3 status-bar position and V6.1 stock Dock lift. Rotate the Home Screen using Lara's existing upside-down setting, then press Apply. Press Restore for normal placement. These buttons do not change orientation policy or follow rotation automatically.")
             }
 
             Section {
                 Button {
-                    run("V6.3.6: Apply Native Masks Only") {
-                        let result = v636_apply_native_masks_only(mgr.sbProc)
-                        return "v636_apply_native_masks_only() -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3.6: Apply Native Masks Only")
-                }
-
-                Button {
-                    run("V6.3.6: Enable Device Event Re-evaluation") {
-                        let result = v636_enable_device_orientation_reevaluation(mgr.sbProc)
-                        return "v636_enable_device_orientation_reevaluation() -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3.6: Enable Device Event Re-evaluation")
-                }
-
-                Button {
-                    run("V6.3.6: Force Orientation Re-evaluation") {
-                        let result = v636_force_orientation_reevaluation(mgr.sbProc)
-                        return "v636_force_orientation_reevaluation() -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3.6: Force Orientation Re-evaluation")
-                }
-
-                Button(role: .destructive) {
-                    run("V6.3.6: Disable + Restore V6.3.6") {
-                        let result = v636_disable_device_orientation_reevaluation(mgr.sbProc)
-                        return "v636_disable_device_orientation_reevaluation() -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3.6: Disable + Restore V6.3.6")
-                }
-
-                Button {
-                    run("V6.3: Prepare Rotation Baseline") {
-                        let result = v63_prepare_rotation_baseline(mgr.sbProc)
-                        return "v63_prepare_rotation_baseline() -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3: Prepare Rotation Baseline")
-                }
-
-                Button {
-                    run("V6.3: Probe Live Orientation State") {
-                        let result = v63_probe_orientation_state(mgr.sbProc)
-                        return "v63_probe_orientation_state() -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3: Probe Live Orientation State")
-                }
-
-                Button {
-                    run("V6.3.4: Capture Callback Map") {
-                        let result = v634_capture_rotation_callback_map(mgr.sbProc)
-                        return "v634_capture_rotation_callback_map() -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3.4: Capture Callback Map")
-                }
-
-                Button {
-                    run("V6.3.4: Arm Best Callback Detector") {
-                        let result = v634_arm_best_callback_detector(mgr.sbProc)
-                        return "v634_arm_best_callback_detector() -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3.4: Arm Best Callback Detector")
-                }
-
-                Button {
-                    run("V6.3.4: Check + Restore Callback Detector") {
-                        let result = v634_check_and_restore_best_callback_detector(mgr.sbProc)
-                        return "v634_check_and_restore_best_callback_detector() -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3.4: Check + Restore Callback Detector")
-                }
-
-                Button {
-                    run("V6.3.4: Native Rotation Refresh Pack") {
-                        let result = v634_run_native_orientation_refresh_pack(mgr.sbProc)
-                        return "v634_run_native_orientation_refresh_pack() -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3.4: Native Rotation Refresh Pack")
-                }
-
-                Button {
-                    run("V6.3.4: Apply Status Bar + Dock From Orientation") {
-                        let result = v634_apply_statusbar_and_dock_for_current_orientation(mgr.sbProc, dockLiftPoints)
-                        return "v634_apply_statusbar_and_dock_for_current_orientation(lift=\(dockLiftPoints)) -> \(result)"
-                    }
-                } label: {
-                    Text("V6.3.4: Apply Status Bar + Dock From Orientation")
-                }
-
-                Button {
-                    run("V6.3: Manual Known-Good V6 Sync") {
-                        let result = sync_v6_status_bar_to_active_orientation(mgr.sbProc, 1)
-                        return "sync_v6_status_bar_to_active_orientation(force=1) -> \(result)"
-                    }
-                } label: {
-                    Text("Fallback: Manual Known-Good V6 Sync")
-                }
-
-                Button {
-                    run("V3: Static Upside-Down Fallback") {
-                        let result = apply_v3_upside_down_status_bar(mgr.sbProc)
-                        return "apply_v3_upside_down_status_bar() -> \(result)"
-                    }
-                } label: {
-                    Text("Fallback: Working V3 — Static")
-                }
-
-                Button {
-                    run("V3/V6: Restore Normal Status Bar") {
-                        let result = restore_status_bar(mgr.sbProc)
-                        return "restore_status_bar() -> \(result)"
-                    }
-                } label: {
-                    Text("Fallback: Restore Layer Transform")
-                }
-
-                Button {
-                    run("V3 Read-Only Status Bar Geometry") {
-                        let result = debug_status_bar_geometry(mgr.sbProc)
-                        return "debug_status_bar_geometry() -> \(result)"
-                    }
-                } label: {
-                    Text("Read-Only Geometry Probe")
-                }
-            } header: {
-                Text("Status Bar V6.3.6 Minimal Native Re-evaluation")
-            } footer: {
-                Text("V6.3.6 removes both V6.3.5 failure paths: it does not replace the root-folder transition callback and it does not subscribe to status-bar/frame-change notifications. Test Masks Only first after a clean respring. If Home Screen rotation remains normal, enable the UIDevice-only re-evaluation observers. There is no Lara polling, watchdog, or background RemoteCall keepalive. V6.3.4 controls remain diagnostics/fallbacks.")
-            }
-
-            Section {
-                Stepper(value: $dockLiftPoints, in: 12...30, step: 1) {
-                    HStack {
-                        Text("Upside-down dock lift")
-                        Spacer()
-                        Text("\(Int(dockLiftPoints)) pt")
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-
-                Button {
-                    dockLiftEnabled = true
-                    let msg = StatusBarAutoFollower.shared.configureDockLift(enabled: true,
-                                                                              points: dockLiftPoints,
-                                                                              mgr: mgr)
-                    mgr.logmsg("(rc) \(msg)")
-                } label: {
-                    Text("Enable Dock + Search Lift")
-                }
-
-                Button {
-                    dockLiftEnabled = false
-                    let msg = StatusBarAutoFollower.shared.configureDockLift(enabled: false,
-                                                                              points: dockLiftPoints,
-                                                                              mgr: mgr)
-                    mgr.logmsg("(rc) \(msg)")
-                } label: {
-                    Text("Restore Dock + Search Position")
-                }
-
-                Stepper(value: $bottomGradientHeight, in: 60...160, step: 10) {
-                    HStack {
-                        Text("Bottom gradient height")
-                        Spacer()
-                        Text("\(Int(bottomGradientHeight)) pt")
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-
-                Button {
-                    bottomGradientEnabled = true
-                    let msg = StatusBarAutoFollower.shared.configureBottomGradient(enabled: true,
-                                                                                    height: bottomGradientHeight,
-                                                                                    mgr: mgr)
-                    mgr.logmsg("(rc) \(msg)")
-                } label: {
-                    Text("Enable Upside-Down Black Gradient")
-                }
-
-                Button {
-                    bottomGradientEnabled = false
-                    let msg = StatusBarAutoFollower.shared.configureBottomGradient(enabled: false,
-                                                                                    height: bottomGradientHeight,
-                                                                                    mgr: mgr)
-                    mgr.logmsg("(rc) \(msg)")
-                } label: {
-                    Text("Disable Bottom Gradient")
-                }
-            } header: {
-                Text("Upside-Down Home Screen")
-            } footer: {
-                Text("23 pt is the default lift. In V6.3 there is no orientation watchdog, so these accessory controls apply only to the orientation that is current when you press them. Keep them disabled while isolating status-bar/event candidates; test them separately after the orientation hook path is known.")
-            }
-
-            Section {
-                Button {
-                    run("V6.1: Block Shortcuts Notifications") {
-                        let r = set_v61_shortcuts_notifications_blocked(mgr.sbProc, 1)
-                        return "set_v61_shortcuts_notifications_blocked(1) -> \(r)"
-                    }
-                } label: {
-                    Text("Block Shortcuts Notifications")
-                }
-
-                Button {
-                    run("V6.1: Restore Shortcuts Notifications") {
-                        let r = set_v61_shortcuts_notifications_blocked(mgr.sbProc, 0)
-                        return "set_v61_shortcuts_notifications_blocked(0) -> \(r)"
-                    }
-                } label: {
-                    Text("Restore Shortcuts Notifications")
-                }
-            } header: {
-                Text("Shortcuts Notifications")
-            } footer: {
-                Text("This edits only the saved BulletinBoard section settings for com.apple.shortcuts and persists them through BBServer. It does not install a global notification hook. If Block returns 0, respring once so BBServer reloads the saved section state, then test a normal automation and the post-reboot Shortcuts bulletin.")
-            }
-
-            Section {
-                Button {
-                    run("V5: Enable Floating Dock (Safe Main Thread)") {
+                    run("Enable Floating Dock") {
                         let result = enable_floating_dock(mgr.sbProc)
                         return "enable_floating_dock() -> \(result)"
                     }
                 } label: {
-                    Text("V5: Enable Floating Dock (Safe)")
+                    Text("Enable Floating Dock")
                 }
                 
                 Button {
@@ -938,7 +533,6 @@ struct RemoteView: View {
     private func run(_ name: String, _ work: @escaping () -> String, onComplete: ((String) -> Void)? = nil) {
         guard mgr.rcready, !running else { return }
         running = true
-        StatusBarAutoFollower.shared.setExternalActionRunning(true)
         mgr.logmsg("(rc) \(name)...")
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -947,7 +541,6 @@ struct RemoteView: View {
                 self.mgr.logmsg("(rc) \(result)")
                 onComplete?(result)
                 self.running = false
-                StatusBarAutoFollower.shared.setExternalActionRunning(false)
             }
         }
     }
