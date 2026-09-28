@@ -131,6 +131,24 @@ struct RemoteView: View {
                 }
 
                 Button {
+                    run("Lock Upside Down Portrait") {
+                        let result = lock_portrait_upside_down(mgr.sbProc)
+                        return "lock_portrait_upside_down() -> \(result) (0 means queued)"
+                    }
+                } label: {
+                    Text("Lock Upside Down Portrait (Test)")
+                }
+
+                Button {
+                    run("Unlock Orientation") {
+                        let result = unlock_orientation(mgr.sbProc)
+                        return "unlock_orientation() -> \(result) (0 means queued)"
+                    }
+                } label: {
+                    Text("Unlock Orientation")
+                }
+
+                Button {
                     run("Flip Status Bar + Lift Dock") {
                         let result = apply_manual_status_and_dock(mgr.sbProc)
                         return "apply_manual_status_and_dock() -> \(result)"
