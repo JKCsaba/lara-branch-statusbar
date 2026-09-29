@@ -131,24 +131,6 @@ struct RemoteView: View {
                 }
 
                 Button {
-                    run("Lock Upside Down Portrait") {
-                        let result = lock_portrait_upside_down(mgr.sbProc)
-                        return "lock_portrait_upside_down() -> \(result) (0 means queued)"
-                    }
-                } label: {
-                    Text("Lock Upside Down Portrait (Test)")
-                }
-
-                Button {
-                    run("Unlock Orientation") {
-                        let result = unlock_orientation(mgr.sbProc)
-                        return "unlock_orientation() -> \(result) (0 means queued)"
-                    }
-                } label: {
-                    Text("Unlock Orientation")
-                }
-
-                Button {
                     run("Flip Status Bar + Lift Dock") {
                         let result = apply_manual_status_and_dock(mgr.sbProc)
                         return "apply_manual_status_and_dock() -> \(result)"
@@ -164,6 +146,24 @@ struct RemoteView: View {
                     }
                 } label: {
                     Text("Restore Status Bar + Dock")
+                }
+
+                Button {
+                    run("Move Dynamic Island to Top") {
+                        let result = move_dynamic_island_to_opposite_end(mgr.sbProc)
+                        return "move_dynamic_island_to_opposite_end() -> \(result)"
+                    }
+                } label: {
+                    Text("Move Dynamic Island to Top")
+                }
+
+                Button {
+                    run("Restore Dynamic Island Position") {
+                        let result = restore_dynamic_island_position(mgr.sbProc)
+                        return "restore_dynamic_island_position() -> \(result)"
+                    }
+                } label: {
+                    Text("Restore Dynamic Island Position")
                 }
 
                 Button {
