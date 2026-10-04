@@ -12,6 +12,7 @@ struct RemoteView: View {
     @ObservedObject var mgr: laramgr
     @State private var statusBarTimeFormat: String = "HH:mm"
     @State private var running: Bool = false
+    @State private var searchLiftPoints: Int = 60
     @State private var columns: Int = 5
     @State private var performanceHUD: Int = -1
     @AppStorage("rcdockunlimited") private var rcdockunlimited: Bool = false
@@ -168,23 +169,29 @@ struct RemoteView: View {
             }
 
             Section {
+                Stepper(value: $searchLiftPoints, in: 0...140, step: 5) {
+                    Text("Search lift: \(searchLiftPoints) pt")
+                }
                 Button {
-                    run("Diagnose Home Search Pill — v11.7") {
-                        let result = diagnose_home_search_pill(mgr.sbProc)
-                        if result > 0 {
-                            return "Search diagnostic complete: \(result) pill(s). Export the log."
-                        }
+                    run("Lift Home Search Pill — v11.8") {
+                        let result = lift_home_search_control(mgr.sbProc, Double(searchLiftPoints))
                         return result == 0
-                            ? "Search diagnostic: no pill found. Export the log."
-                            : "Search diagnostic stopped (\(result)). Export the log."
+                            ? "Search control move queued."
+                            : "Search move stopped (\(result)); no move queued."
                     }
                 } label: {
-                    Text("Diagnose Home Search Pill")
+                    Text("Lift Home Search Pill")
+                }
+                Button {
+                    run("Restore Home Search Pill — v11.8") {
+                        let result = restore_home_search_control(mgr.sbProc)
+                        return "restore_home_search_control() -> \(result)"
+                    }
+                } label: {
+                    Text("Restore Home Search Pill")
                 }
             } header: {
-                Text("Home Search — v11.7 diagnostic")
-            } footer: {
-                Text("Records the Search pill and its surrounding views. Does not move the pill.")
+                Text("Home Search — v11.8")
             }
             .disabled(!mgr.rcready || running)
 
