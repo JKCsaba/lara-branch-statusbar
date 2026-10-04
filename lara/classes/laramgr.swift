@@ -48,8 +48,6 @@ final class laramgr: ObservableObject {
     @Published var sbxfailed: Bool = false
     @Published var sbxrunning: Bool = false
     @Published var rcready: Bool = false
-    // Main-thread lease for one bounded observational background capture.
-    var islandDiagnosticCaptureActive: Bool = false
     @Published var rcfailed: Bool = false
     @Published var showrespring: Bool = false
     

@@ -175,16 +175,8 @@ struct RemoteView: View {
             }
 
             Section {
-                Button("Capture upright in 10 seconds") {
-                    captureIslandDiagnostic("upright")
-                }
-                .disabled(!mgr.rcready || running)
-                Button("Capture upside down in 10 seconds") {
-                    captureIslandDiagnostic("upside-down")
-                }
-                .disabled(!mgr.rcready || running)
-                Button("Capture expanded music in 10 seconds") {
-                    captureIslandDiagnostic("expanded-upside-down")
+                Button("Capture current state") {
+                    captureIslandDiagnostic("current-state")
                 }
                 .disabled(!mgr.rcready || running)
                 Text(islandDiagnosticStatus)
@@ -209,14 +201,10 @@ struct RemoteView: View {
                     Text("Share Island Diagnostics Report")
                 }
                 .disabled(!FileManager.default.fileExists(atPath: islandDiagnosticURL.path))
-                ShareLink(item: islandPreviousLogURL) {
-                    Text("Share Previous Lara Log")
-                }
-                .disabled(!FileManager.default.fileExists(atPath: islandPreviousLogURL.path))
             } header: {
-                Text("Island Diagnostics — v12.2")
+                Text("Island Diagnostics — v12.3")
             } footer: {
-                Text("After tapping, return Home and hold the requested orientation. For expanded music, long-press the Island before 10 seconds pass. Captures do not move or rotate it. The report survives reopening Lara.")
+                Text("Capture runs immediately while Lara is open. Do not leave Lara during capture. It does not move or rotate the Island.")
             }
 
             Section {
@@ -636,16 +624,9 @@ struct RemoteView: View {
 
     private var islandDiagnosticURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("island-diagnostics-v12.2.txt")
+            .appendingPathComponent("island-diagnostics-v12.3.txt")
     }
 
-    private var islandPreviousLogURL: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("lara-before-island-diag.log")
-    }
-
-    // This separate report is appended and synchronized; Logger's launch-time
-    // truncation of lara.log cannot erase it. Export requires no RemoteCall.
     private func appendIslandDiagnostic(_ text: String) -> Bool {
         let url = islandDiagnosticURL
         let fm = FileManager.default
@@ -668,63 +649,19 @@ struct RemoteView: View {
 
     private func captureIslandDiagnostic(_ phase: String) {
         guard mgr.rcready, !running, let proc = mgr.sbProc else { return }
-        let appOrientation = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }.first?.interfaceOrientation.rawValue ?? 0
-        guard appendIslandDiagnostic("\nARMED \(phase) at \(Date()); capture in 10 seconds; Lara scene orientation=\(appOrientation)") else {
-            islandDiagnosticStatus = "Report could not be saved; capture cancelled."
-            return
-        }
         running = true
-        mgr.islandDiagnosticCaptureActive = true
-        islandDiagnosticExpired = false
-        islandDiagnosticStatus = "\(phase): capture in 10 seconds. Return Home now; keep that state until you return here."
-        let reportPath = islandDiagnosticURL.path
-        let task = UIApplication.shared.beginBackgroundTask(withName: "IslandDiagnosticCapture") {
-            self.islandDiagnosticExpired = true
-            if self.islandDiagnosticTask != .invalid {
-                UIApplication.shared.endBackgroundTask(self.islandDiagnosticTask)
-                self.islandDiagnosticTask = .invalid
+        islandDiagnosticStatus = "Capturing current Island state; keep Lara open..."
+        let result = phase.withCString { label in
+            islandDiagnosticURL.path.withCString { path in
+                capture_dynamic_island_diagnostics(proc, label, path)
             }
-        }
-        islandDiagnosticTask = task
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 10) {
-            let expired = DispatchQueue.main.sync { self.islandDiagnosticExpired }
-            let result: Int32
-            if expired {
-                result = -6
-            } else {
-                result = phase.withCString { label in
-                    reportPath.withCString { path in
-                        capture_dynamic_island_diagnostics(proc, label, path)
-                    }
-                }
-            }
-            DispatchQueue.main.async {
-                let message = result == 0 ? "\(phase) captured. Initialize RemoteCall again for the next capture; share after all three."
-                    : "\(phase) stopped (\(result)). Share the report; completed checkpoints remain saved."
-                self.islandDiagnosticStatus = message
-                _ = self.appendIslandDiagnostic("LARA RESULT \(phase): \(result) at \(Date())")
-                self.mgr.logmsg("(rc) Island Diagnostics v12.2: \(message)")
-                if UIApplication.shared.applicationState != .active, self.mgr.rcready {
-                    // Keep the background lease until RemoteCall teardown has
-                    // completed, just as the baseline cleanup path does.
-                    self.mgr.rcdestroy {
-                        self.finishIslandDiagnosticCapture()
-                    }
-                } else {
-                    self.finishIslandDiagnosticCapture()
-                }
-            }
-        }
-    }
-
-    private func finishIslandDiagnosticCapture() {
-        mgr.islandDiagnosticCaptureActive = false
-        if islandDiagnosticTask != .invalid {
-            UIApplication.shared.endBackgroundTask(islandDiagnosticTask)
-            islandDiagnosticTask = .invalid
         }
         running = false
+        let message = result == 0 ? "State captured. Repeat in the next orientation, then share the report."
+            : "Capture stopped (\(result)); share the report if checkpoints were written."
+        islandDiagnosticStatus = message
+        _ = appendIslandDiagnostic("LARA RESULT \(phase): \(result) at \(Date())")
+        mgr.logmsg("(rc) Island Diagnostics v12.3: \(message)")
     }
 
     private func run(_ name: String, _ work: @escaping () -> String, onComplete: ((String) -> Void)? = nil) {

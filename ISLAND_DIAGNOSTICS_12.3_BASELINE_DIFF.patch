@@ -1,0 +1,536 @@
+--- a/lara/Info.plist
++++ b/lara/Info.plist
+@@ -2,6 +2,8 @@
+ <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+ <plist version="1.0">
+ <dict>
++	<key>CFBundleDisplayName</key>
++	<string>Lara Island Diag 12.3</string>
+ 	<key>UIBackgroundModes</key>
+ 	<array>
+ 		<string>audio</string>
+--- a/lara/kexploit/pe/rc.h
++++ b/lara/kexploit/pe/rc.h
+@@ -22,6 +22,9 @@
+ int restore_manual_status_and_dock(RemoteCall *proc);
+ int add_notch_gradient(RemoteCall *proc);
+ int remove_notch_gradient(RemoteCall *proc);
++int move_dynamic_island_window(RemoteCall *proc, double offsetPoints);
++int restore_dynamic_island_window(RemoteCall *proc);
++int capture_dynamic_island_diagnostics(RemoteCall *proc, const char *phase, const char *reportPath);
+ int enable_floating_dock(RemoteCall *proc);
+ int enable_grid_app_switcher(RemoteCall *proc);
+ int enable_debug_overlay(RemoteCall *proc);
+--- a/lara/kexploit/pe/rc.m
++++ b/lara/kexploit/pe/rc.m
+@@ -1779,3 +1779,327 @@
+     if (!lockResult) lockResult = movingResult;
+     return homeResult ? homeResult : lockResult;
+ }
++
++#include <math.h>
++
++// BEGIN v12.0 MANUAL DYNAMIC ISLAND WINDOW POSITION
++// References: VisibleIsland's SBSystemApertureWindow positioning and
++// UpsideDownDynamicIsland's separate window/content orientation behavior.
++// This manual control moves the identified window without changing rotation.
++// It adds no hooks and traverses no subviews.
++static __weak RemoteCall *rc_island120_original_proc;
++static uint64_t rc_island120_original_window;
++static CGRect rc_island120_original_frame;
++static bool rc_island120_have_original;
++
++static uint64_t rc_island120_send(RemoteCall *proc, uint64_t target,
++                                 uint64_t selector, uint64_t a0) {
++    if (!proc || proc.lastError.length || !target || !selector) return 0;
++    return remote_msg(proc, target, selector, a0, 0, 0, 0);
++}
++
++// Only public collection getters on UIApplication and UIWindowScene are used.
++// UIKit scenes are snapshotted once; only an Island scene's own windows are read.
++static uint64_t rc_island120_window(RemoteCall *proc) {
++    uint64_t sceneClass = remote_getClass(proc, "SBSystemApertureWindowScene");
++    uint64_t windowClass = remote_getClass(proc, "SBSystemApertureWindow");
++    uint64_t appClass = remote_getClass(proc, "UIApplication");
++    if (!sceneClass || !windowClass || !appClass || proc.lastError.length) return 0;
++    uint64_t shared = remote_sel(proc, "sharedApplication");
++    uint64_t connected = remote_sel(proc, "connectedScenes");
++    uint64_t allObjects = remote_sel(proc, "allObjects");
++    uint64_t countSel = remote_sel(proc, "count");
++    uint64_t atIndex = remote_sel(proc, "objectAtIndex:");
++    uint64_t kind = remote_sel(proc, "isKindOfClass:");
++    uint64_t windowsSel = remote_sel(proc, "windows");
++    if (proc.lastError.length || !shared || !connected || !allObjects ||
++        !countSel || !atIndex || !kind || !windowsSel) return 0;
++    uint64_t app = rc_island120_send(proc, appClass, shared, 0);
++    uint64_t scenes = rc_island120_send(proc, app, connected, 0);
++    uint64_t array = rc_island120_send(proc, scenes, allObjects, 0);
++    uint64_t count = rc_island120_send(proc, array, countSel, 0);
++    if (!array || count == 0 || count > 32 || proc.lastError.length) return 0;
++    uint64_t match = 0;
++    for (uint64_t i = 0; i < count; i++) {
++        uint64_t scene = rc_island120_send(proc, array, atIndex, i);
++        if (!rc_island120_send(proc, scene, kind, sceneClass)) continue;
++        uint64_t windows = rc_island120_send(proc, scene, windowsSel, 0);
++        uint64_t windowCount = rc_island120_send(proc, windows, countSel, 0);
++        if (!windows || windowCount > 8 || proc.lastError.length) return 0;
++        for (uint64_t j = 0; j < windowCount; j++) {
++            uint64_t window = rc_island120_send(proc, windows, atIndex, j);
++            if (!rc_island120_send(proc, window, kind, windowClass)) continue;
++            if (match && match != window) {
++                printf("(rc) v12.0 island: multiple Island windows; unchanged\n");
++                return 0;
++            }
++            match = window;
++        }
++    }
++    return proc.lastError.length ? 0 : match;
++}
++
++static bool rc_island120_valid_frame(CGRect frame) {
++    return isfinite(frame.origin.x) && isfinite(frame.origin.y) &&
++           isfinite(frame.size.width) && isfinite(frame.size.height) &&
++           frame.size.width >= 100 && frame.size.width <= 2000 &&
++           frame.size.height >= 40 && frame.size.height <= 3000;
++}
++
++static int rc_island120_apply(RemoteCall *proc, double offsetPoints, bool restore) {
++    if (!proc || proc.lastError.length) return -1;
++    if (!isfinite(offsetPoints) || offsetPoints < -900 || offsetPoints > 900) return -1;
++    printf("(rc) v12.0 island: resolve Island scene/window\n");
++    fflush(stdout);
++    uint64_t window = rc_island120_window(proc);
++    if (!window || proc.lastError.length) {
++        printf("(rc) v12.0 island: unique Island window unavailable; unchanged\n");
++        return -2;
++    }
++    uint64_t frameSel = remote_sel(proc, "frame");
++    if (!frameSel || proc.lastError.length) return -3;
++    CGRect before = remote_getCGRect(proc, window, frameSel);
++    if (proc.lastError.length || !rc_island120_valid_frame(before)) return -3;
++    bool sameWindow = rc_island120_have_original &&
++        rc_island120_original_proc == proc && rc_island120_original_window == window;
++    if (restore && !sameWindow) return -4;
++    if (!sameWindow) {
++        rc_island120_original_proc = proc;
++        rc_island120_original_window = window;
++        rc_island120_original_frame = before;
++        rc_island120_have_original = true;
++    }
++    CGRect desired = restore ? rc_island120_original_frame : before;
++    if (!restore) desired.origin.y = rc_island120_original_frame.origin.y + offsetPoints;
++    // Absolute offset from the captured original: repeated taps do not accumulate.
++    uint64_t setter = remote_sel(proc, "setFrame:");
++    if (!setter || proc.lastError.length) return -5;
++    printf("(rc) v12.0 island: window=0x%llx before=(%.1f,%.1f %.1fx%.1f) requestedY=%.1f restore=%d\n",
++           (unsigned long long)window, before.origin.x, before.origin.y,
++           before.size.width, before.size.height, desired.origin.y, restore);
++    fflush(stdout);
++    int result = rc_schedule_rect_on_main(proc, window, setter, desired,
++        restore ? "v120-island-restore" : "v120-island-position");
++    if (result || proc.lastError.length) return -5;
++    // Readback reports whether UIKit accepted the origin; it does not prove that
++    // the Island is visible, that touch/expanded states work, or that layout keeps it.
++    usleep(250000);
++    CGRect after = remote_getCGRect(proc, window, frameSel);
++    if (proc.lastError.length || !rc_island120_valid_frame(after)) return -6;
++    printf("(rc) v12.0 island: readback=(%.1f,%.1f %.1fx%.1f) requestedY=%.1f\n",
++           after.origin.x, after.origin.y, after.size.width, after.size.height, desired.origin.y);
++    fflush(stdout);
++    double difference = after.origin.y - desired.origin.y;
++    if (difference < -1.0 || difference > 1.0) return -7;
++    return 0;
++}
++
++int move_dynamic_island_window(RemoteCall *proc, double offsetPoints) {
++    return rc_island120_apply(proc, offsetPoints, false);
++}
++
++int restore_dynamic_island_window(RemoteCall *proc) {
++    return rc_island120_apply(proc, 0, true);
++}
++// END v12.0 MANUAL DYNAMIC ISLAND WINDOW POSITION
++// BEGIN v12.3 OBSERVATIONAL ISLAND DIAGNOSTICS
++// No private orientation invocation, ivar dereference, method replacement,
++// view traversal, setter, or main-thread takeover. The 12.0 resolver is reused.
++#include <stdio.h>
++#include <time.h>
++
++typedef struct {
++    __unsafe_unretained RemoteCall *proc;
++    FILE *file;
++    bool stopped;
++    CFAbsoluteTime deadline;
++    unsigned steps;
++    const char *selectorNames[24];
++    uint64_t selectors[24];
++    size_t selectorCount;
++} rc_island123_context;
++
++static void rc_island123_record(rc_island123_context *d, NSString *line) {
++    fprintf(d->file, "%s\n", line.UTF8String ?: "(unavailable)");
++    fflush(d->file);
++    fsync(fileno(d->file));
++}
++
++static bool rc_island123_step(rc_island123_context *d, NSString *name) {
++    if (d->stopped) return false;
++    if (d->proc.lastError.length || CFAbsoluteTimeGetCurrent() > d->deadline ||
++        d->steps >= 160) {
++        rc_island123_record(d, [NSString stringWithFormat:@"STOP: %@",
++            d->proc.lastError.length ? d->proc.lastError : @"capture time/call limit reached"]);
++        d->stopped = true;
++        return false;
++    }
++    d->steps++;
++    rc_island123_record(d, [NSString stringWithFormat:@"BEFORE %u: %@", d->steps, name]);
++    return true;
++}
++
++static uint64_t rc_island123_selector(rc_island123_context *d, const char *name) {
++    for (size_t i = 0; i < d->selectorCount; i++)
++        if (!strcmp(d->selectorNames[i], name)) return d->selectors[i];
++    if (!rc_island123_step(d, [NSString stringWithFormat:@"selector %s", name])) return 0;
++    uint64_t result = remote_sel(d->proc, name);
++    if (result && !d->proc.lastError.length && d->selectorCount < 24) {
++        size_t i = d->selectorCount++;
++        d->selectorNames[i] = name;
++        d->selectors[i] = result;
++    }
++    return result;
++}
++
++static uint64_t rc_island123_get(rc_island123_context *d, uint64_t owner,
++                                const char *name, uint64_t arg) {
++    if (!owner || d->stopped) return 0;
++    uint64_t selector = rc_island123_selector(d, name);
++    if (!selector || !rc_island123_step(d, [NSString stringWithFormat:
++        @"getter %s on 0x%llx", name, (unsigned long long)owner])) return 0;
++    uint64_t result = remote_msg(d->proc, owner, selector, arg, 0, 0, 0);
++    rc_island123_record(d, [NSString stringWithFormat:@"AFTER %s: 0x%llx error=%@",
++        name, (unsigned long long)result, d->proc.lastError ?: @""]);
++    return d->proc.lastError.length ? 0 : result;
++}
++
++// C strings are bounded; remote page boundaries and nil pointers are handled.
++static NSString *rc_island123_string(rc_island123_context *d, uint64_t address) {
++    if (!address || d->stopped || d->proc.lastError.length) return @"(unavailable)";
++    char buffer[160] = {0};
++    for (size_t offset = 0; offset < sizeof(buffer) - 1;) {
++        size_t amount = MIN((size_t)32, sizeof(buffer) - 1 - offset);
++        amount = MIN(amount, (size_t)(0x4000 - ((address + offset) & 0x3fff)));
++        if (![d->proc remoteRead:address + offset to:buffer + offset size:amount])
++            return @"(unreadable)";
++        if (memchr(buffer + offset, 0, amount)) break;
++        offset += amount;
++    }
++    return [NSString stringWithUTF8String:buffer] ?: @"(invalid text)";
++}
++
++static void rc_island123_class_name(rc_island123_context *d, uint64_t object,
++                                   NSString *label) {
++    if (!object || !rc_island123_step(d, [label stringByAppendingString:@" object_getClass"])) return;
++    uint64_t cls = RemoteArbCall(d->proc, object_getClass, object);
++    if (!cls || !rc_island123_step(d, [label stringByAppendingString:@" class_getName"])) return;
++    uint64_t name = RemoteArbCall(d->proc, class_getName, cls);
++    rc_island123_record(d, [NSString stringWithFormat:@"%@ object=0x%llx class=%@",
++        label, (unsigned long long)object, rc_island123_string(d, name)]);
++}
++
++// Use the exact floating-register spill mechanism already used by the working
++// CGRect reader. Check transport state between getter, spill, and local read.
++static bool rc_island123_rect(rc_island123_context *d, uint64_t object,
++                              const char *getter, NSString *label, CGRect *out) {
++    if (!object || d->stopped) return false;
++    Class donor = NSClassFromString(@"CAMetalDrawable");
++    Method method = donor ? class_getInstanceMethod(donor, @selector(setDirtyRect:)) : NULL;
++    IMP spill = method ? method_getImplementation(method) : NULL;
++    if (!spill) { rc_island123_record(d, @"SKIP: baseline float-register spill unavailable"); return false; }
++    rc_island123_get(d, object, getter, 0);
++    if (!rc_island123_step(d, [label stringByAppendingString:@" float-register spill"])) return false;
++    RemoteArbCall(d->proc, spill, d->proc.trojanMem - 0x20);
++    if (d->proc.lastError.length || ![d->proc remoteRead:d->proc.trojanMem to:out size:sizeof(*out)])
++        return false;
++    rc_island123_record(d, [NSString stringWithFormat:@"%@ = (%.4f, %.4f, %.4f, %.4f)",
++        label, out->origin.x, out->origin.y, out->size.width, out->size.height]);
++    return true;
++}
++
++static void rc_island123_layer(rc_island123_context *d, uint64_t layer, NSString *label) {
++    if (!layer || d->stopped) return;
++    const char *keys[] = {"transform.rotation.z", "transform.translation.y"};
++    for (size_t i = 0; i < 2; i++) {
++        if (!rc_island123_step(d, [NSString stringWithFormat:@"%@ KVC key %s", label, keys[i]])) return;
++        uint64_t key = remote_NSString(d->proc, keys[i]);
++        if (d->proc.lastError.length || !key) return;
++        uint64_t number = rc_island123_get(d, layer, "valueForKeyPath:", key);
++        CGRect registers = CGRectZero;
++        if (number && rc_island123_rect(d, number, "doubleValue",
++            [NSString stringWithFormat:@"%@ %s (first scalar)", label, keys[i]], &registers)) {
++            rc_island123_record(d, [NSString stringWithFormat:@"VALUE %@ %s = %.8f",
++                label, keys[i], registers.origin.x]);
++        }
++    }
++}
++
++// Inspect class metadata/code only. These private selectors are NEVER invoked.
++static void rc_island123_method(rc_island123_context *d, const char *className,
++                                const char *selectorName) {
++    if (!rc_island123_step(d, [NSString stringWithFormat:@"metadata class %s", className])) return;
++    uint64_t cls = remote_getClass(d->proc, className);
++    uint64_t selector = rc_island123_selector(d, selectorName);
++    if (!cls || !selector || !rc_island123_step(d, @"class_getInstanceMethod (metadata only)")) return;
++    uint64_t method = RemoteArbCall(d->proc, class_getInstanceMethod, cls, selector);
++    if (!method) { rc_island123_record(d, [NSString stringWithFormat:@"METHOD %s %s: absent", className, selectorName]); return; }
++    if (!rc_island123_step(d, @"method_getTypeEncoding (metadata only)")) return;
++    uint64_t encoding = RemoteArbCall(d->proc, method_getTypeEncoding, method);
++    NSString *type = rc_island123_string(d, encoding);
++    if (!rc_island123_step(d, @"method_getImplementation (metadata only)")) return;
++    uint64_t implementation = RemoteArbCall(d->proc, method_getImplementation, method);
++    uint32_t instructions[8] = {0};
++    bool readable = implementation && !d->proc.lastError.length &&
++        [d->proc remoteRead:nativestrip(implementation) to:instructions size:sizeof(instructions)];
++    NSMutableString *code = [NSMutableString string];
++    if (readable) for (size_t i = 0; i < 8; i++) [code appendFormat:@" %08x", instructions[i]];
++    rc_island123_record(d, [NSString stringWithFormat:@"METHOD %s %s encoding=%@ IMP=0x%llx words=%@",
++        className, selectorName, type, (unsigned long long)implementation, readable ? code : @"unreadable"]);
++}
++
++int capture_dynamic_island_diagnostics(RemoteCall *proc, const char *phase, const char *reportPath) {
++    if (!reportPath) return -1;
++    FILE *file = fopen(reportPath, "a");
++    if (!file) return -2;
++    rc_island123_context d = {.proc = proc, .file = file,
++                             .deadline = CFAbsoluteTimeGetCurrent() + 18.0};
++    rc_island123_record(&d, [NSString stringWithFormat:@"\n=== Lara Island Diagnostics 12.3 | %s | %@ ===",
++        phase ?: "unspecified", [NSDate date]]);
++    rc_island123_record(&d, @"Observation only: no orientation override, private orientation call, or visual change.");
++    if (!proc || proc.lastError.length) {
++        rc_island123_record(&d, [NSString stringWithFormat:@"STOP: RemoteCall unavailable or already failed: %@", proc.lastError ?: @""]);
++        fclose(file); return -3;
++    }
++    rc_island123_record(&d, [NSString stringWithFormat:@"SpringBoard pid=%d", proc.pid]);
++    if (!rc_island123_step(&d, @"working 12.0 Island scene/window resolver")) { fclose(file); return -3; }
++    uint64_t window = rc_island120_window(proc);
++    rc_island123_record(&d, [NSString stringWithFormat:@"AFTER resolver: window=0x%llx error=%@",
++        (unsigned long long)window, proc.lastError ?: @""]);
++    if (!window || proc.lastError.length) { rc_island123_record(&d, @"STOP: Island window unavailable"); fclose(file); return -4; }
++    rc_island123_class_name(&d, window, @"Island window");
++    uint64_t scene = rc_island123_get(&d, window, "windowScene", 0);
++    uint64_t orientation = rc_island123_get(&d, scene, "interfaceOrientation", 0);
++    rc_island123_record(&d, [NSString stringWithFormat:@"Island scene orientation=%llu (1 portrait, 2 upside down, 3/4 landscape)",
++        (unsigned long long)orientation]);
++    CGRect rect = CGRectZero;
++    rc_island123_rect(&d, window, "frame", @"Window frame", &rect);
++    rc_island123_rect(&d, window, "bounds", @"Window bounds", &rect);
++    uint64_t layer = rc_island123_get(&d, window, "layer", 0);
++    rc_island123_layer(&d, layer, @"Window layer");
++    uint64_t root = rc_island123_get(&d, window, "rootViewController", 0);
++    rc_island123_class_name(&d, root, @"Root controller");
++    // Don't create unloaded views; don't enumerate child controllers or subviews.
++    if (rc_island123_get(&d, root, "isViewLoaded", 0)) {
++        uint64_t view = rc_island123_get(&d, root, "viewIfLoaded", 0);
++        rc_island123_class_name(&d, view, @"Loaded root view");
++        rc_island123_rect(&d, view, "frame", @"Root view frame", &rect);
++        rc_island123_rect(&d, view, "bounds", @"Root view bounds", &rect);
++        uint64_t rootLayer = rc_island123_get(&d, view, "layer", 0);
++        rc_island123_layer(&d, rootLayer, @"Root view layer");
++    }
++    // Metadata is collected once, on the upright-labelled capture only.
++    if (phase && !strcmp(phase, "upright")) {
++        rc_island123_method(&d, "SBSystemApertureWindow", "setAutorotates:");
++        rc_island123_method(&d, "SBSystemApertureWindow", "autorotates");
++        rc_island123_method(&d, "SBSystemApertureCurtainViewController", "supportedInterfaceOrientations");
++        rc_island123_method(&d, "SBSystemApertureViewController", "supportedInterfaceOrientations");
++        rc_island123_method(&d, "SBSystemApertureController", "_applyOrientation:withPreviousOrientation:animationSettings:");
++    }
++    int result = d.stopped || proc.lastError.length ? -5 : 0;
++    rc_island123_record(&d, [NSString stringWithFormat:@"END phase=%s result=%d steps=%u error=%@",
++        phase ?: "unspecified", result, d.steps, proc.lastError ?: @""]);
++    fclose(file);
++    return result;
++}
++// END v12.3 OBSERVATIONAL ISLAND DIAGNOSTICS
+--- a/lara/views/tweaks/RemoteView.swift
++++ b/lara/views/tweaks/RemoteView.swift
+@@ -6,12 +6,19 @@
+ //
+ 
+ import SwiftUI
++import UIKit
+ import Darwin
+ 
+ struct RemoteView: View {
+     @ObservedObject var mgr: laramgr
+     @State private var statusBarTimeFormat: String = "HH:mm"
+     @State private var running: Bool = false
++    @State private var islandOffsetPoints: Int = 780
++    @State private var islandDiagnosticStatus: String = "Ready. Capture upright, upside down, then expanded music."
++    @State private var islandDiagnosticExpired: Bool = false
++    @State private var islandDiagnosticTask: UIBackgroundTaskIdentifier = .invalid
++    @State private var islandObservedText: String = "not checked"
++    @State private var islandObservedExpansion: String = "not checked"
+     @State private var columns: Int = 5
+     @State private var performanceHUD: Int = -1
+     @AppStorage("rcdockunlimited") private var rcdockunlimited: Bool = false
+@@ -166,6 +173,73 @@
+                     Text("Remove Gradient")
+                 }
+             }
++
++            Section {
++                Button("Capture current state") {
++                    captureIslandDiagnostic("current-state")
++                }
++                .disabled(!mgr.rcready || running)
++                Text(islandDiagnosticStatus)
++                    .font(.footnote)
++                Picker("Upside-down Island text", selection: $islandObservedText) {
++                    Text("Not checked").tag("not checked")
++                    Text("Correct way up").tag("correct way up")
++                    Text("Inverted").tag("inverted")
++                }
++                Picker("Expanded music grows", selection: $islandObservedExpansion) {
++                    Text("Not checked").tag("not checked")
++                    Text("Into the screen").tag("into the screen")
++                    Text("Off the edge / clipped").tag("off the edge / clipped")
++                }
++                Button("Save what I saw") {
++                    if appendIslandDiagnostic("OBSERVED at \(Date()): upside-down text=\(islandObservedText); expansion=\(islandObservedExpansion)") {
++                        islandDiagnosticStatus = "Observation saved to the report."
++                    }
++                }
++                .disabled(running)
++                ShareLink(item: islandDiagnosticURL) {
++                    Text("Share Island Diagnostics Report")
++                }
++                .disabled(!FileManager.default.fileExists(atPath: islandDiagnosticURL.path))
++            } header: {
++                Text("Island Diagnostics — v12.3")
++            } footer: {
++                Text("Capture runs immediately while Lara is open. Do not leave Lara during capture. It does not move or rotate the Island.")
++            }
++
++            Section {
++                Stepper(value: $islandOffsetPoints, in: -900...900, step: 10) {
++                    Text("Island offset: \(islandOffsetPoints) pt")
++                }
++                Button {
++                    run("Move Dynamic Island — v12.0") {
++                        let result = move_dynamic_island_window(mgr.sbProc, Double(islandOffsetPoints))
++                        switch result {
++                        case 0: return "Island position accepted. Check the Island on Home Screen."
++                        case -2: return "Island window unavailable; nothing changed."
++                        case -7: return "Island position was not accepted or was reset by layout."
++                        default: return "Island position failed (\(result))."
++                        }
++                    }
++                } label: {
++                    Text("Move Dynamic Island")
++                }
++                Button {
++                    run("Restore Dynamic Island — v12.0") {
++                        let result = restore_dynamic_island_window(mgr.sbProc)
++                        return result == 0 ? "Original Island position accepted."
++                            : result == -4 ? "No original Island position saved in this session."
++                            : "Island restore failed (\(result))."
++                    }
++                } label: {
++                    Text("Restore Dynamic Island")
++                }
++            } header: {
++                Text("Dynamic Island — v12.0 (Manual)")
++            } footer: {
++                Text("Use upside down with a timer or music active. Positive offsets move toward the charging port. Position may reset during layout or respring.")
++            }
++            .disabled(!mgr.rcready || running)
+ 
+             Section {
+                 Button {
+@@ -548,6 +622,48 @@
+         }
+     }
+ 
++    private var islandDiagnosticURL: URL {
++        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
++            .appendingPathComponent("island-diagnostics-v12.3.txt")
++    }
++
++    private func appendIslandDiagnostic(_ text: String) -> Bool {
++        let url = islandDiagnosticURL
++        let fm = FileManager.default
++        if !fm.fileExists(atPath: url.path) {
++            guard fm.createFile(atPath: url.path, contents: nil,
++                attributes: [.protectionKey: FileProtectionType.none]) else { return false }
++        }
++        do {
++            let handle = try FileHandle(forWritingTo: url)
++            defer { try? handle.close() }
++            try handle.seekToEnd()
++            try handle.write(contentsOf: Data((text + "\n").utf8))
++            try handle.synchronize()
++            return true
++        } catch {
++            islandDiagnosticStatus = "Could not save the report: \(error.localizedDescription)"
++            return false
++        }
++    }
++
++    private func captureIslandDiagnostic(_ phase: String) {
++        guard mgr.rcready, !running, let proc = mgr.sbProc else { return }
++        running = true
++        islandDiagnosticStatus = "Capturing current Island state; keep Lara open..."
++        let result = phase.withCString { label in
++            islandDiagnosticURL.path.withCString { path in
++                capture_dynamic_island_diagnostics(proc, label, path)
++            }
++        }
++        running = false
++        let message = result == 0 ? "State captured. Repeat in the next orientation, then share the report."
++            : "Capture stopped (\(result)); share the report if checkpoints were written."
++        islandDiagnosticStatus = message
++        _ = appendIslandDiagnostic("LARA RESULT \(phase): \(result) at \(Date())")
++        mgr.logmsg("(rc) Island Diagnostics v12.3: \(message)")
++    }
++
+     private func run(_ name: String, _ work: @escaping () -> String, onComplete: ((String) -> Void)? = nil) {
+         guard mgr.rcready, !running else { return }
+         running = true
+--- a/lara.xcodeproj/project.pbxproj
++++ b/lara.xcodeproj/project.pbxproj
+@@ -500,7 +500,7 @@
+ 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+ 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+ 				CODE_SIGN_STYLE = Automatic;
+-				CURRENT_PROJECT_VERSION = Release;
++				CURRENT_PROJECT_VERSION = 124;
+ 				DEVELOPMENT_TEAM = "";
+ 				ENABLE_PREVIEWS = YES;
+ 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+@@ -527,7 +527,7 @@
+ 					"$(inherited)",
+ 					"$(PROJECT_DIR)/lara/lib",
+ 				);
+-				MARKETING_VERSION = 0.2;
++				MARKETING_VERSION = 0.2.124;
+ 				PRODUCT_BUNDLE_IDENTIFIER = com.roooot.lara;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+@@ -552,7 +552,7 @@
+ 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+ 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+ 				CODE_SIGN_STYLE = Automatic;
+-				CURRENT_PROJECT_VERSION = Release;
++				CURRENT_PROJECT_VERSION = 124;
+ 				DEVELOPMENT_TEAM = "";
+ 				ENABLE_PREVIEWS = YES;
+ 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+@@ -579,7 +579,7 @@
+ 					"$(inherited)",
+ 					"$(PROJECT_DIR)/lara/lib",
+ 				);
+-				MARKETING_VERSION = 0.2;
++				MARKETING_VERSION = 0.2.124;
+ 				PRODUCT_BUNDLE_IDENTIFIER = com.roooot.lara;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
