@@ -13,7 +13,7 @@ struct RemoteView: View {
     @ObservedObject var mgr: laramgr
     @State private var statusBarTimeFormat: String = "HH:mm"
     @State private var running: Bool = false
-    @State private var islandOffsetPoints: Int = min(900, max(0, Int(UIScreen.main.bounds.height) - 104))
+    @State private var islandOffsetPoints: Int = 780
     @State private var columns: Int = 5
     @State private var performanceHUD: Int = -1
     @AppStorage("rcdockunlimited") private var rcdockunlimited: Bool = false
@@ -170,26 +170,31 @@ struct RemoteView: View {
             }
 
             Section {
-                Stepper(value: $islandOffsetPoints, in: -900...900, step: 10) {
-                    Text("Island offset: \(islandOffsetPoints) pt")
+                Stepper(value: $islandOffsetPoints, in: 0...900, step: 10) {
+                    Text("Island edge: \(islandOffsetPoints) pt")
                 }
                 Button {
-                    run("Move Dynamic Island — v12.0") {
-                        let result = move_dynamic_island_window(mgr.sbProc, Double(islandOffsetPoints))
+                    run("Move Dynamic Island — v12.1") {
+                        let result = place_dynamic_island_with_inward_expansion(mgr.sbProc, Double(islandOffsetPoints))
                         switch result {
-                        case 0: return "Island position accepted. Check the Island on Home Screen."
+                        case 0: return "Island portrait layout + visual rotation applied. Check expanded music."
                         case -2: return "Island window unavailable; nothing changed."
-                        case -7: return "Island position was not accepted or was reset by layout."
+                        case -10: return "Old Island offset detected. Respring once, then initialize Lara and try again."
+                        case -12: return "Hold the phone upside down before applying this control."
+                        case -20: return "Island override is from another session. Respring to reset it."
+                        case -21: return "Native Island controller unavailable; orientation unchanged."
+                        case -25: return "Island orientation method signature unsupported."
+                        case -26: return "Orientation no-op could not be verified; override not installed."
                         default: return "Island position failed (\(result))."
                         }
                     }
                 } label: {
-                    Text("Move Dynamic Island")
+                    Text("Place Island + Fix Expansion")
                 }
                 Button {
-                    run("Restore Dynamic Island — v12.0") {
-                        let result = restore_dynamic_island_window(mgr.sbProc)
-                        return result == 0 ? "Original Island position accepted."
+                    run("Restore Dynamic Island — v12.1") {
+                        let result = restore_dynamic_island_orientation(mgr.sbProc)
+                        return result == 0 ? "Original Island orientation and position restored."
                             : result == -4 ? "No original Island position saved in this session."
                             : "Island restore failed (\(result))."
                     }
@@ -197,9 +202,9 @@ struct RemoteView: View {
                     Text("Restore Dynamic Island")
                 }
             } header: {
-                Text("Dynamic Island — v12.0 (Manual)")
+                Text("Dynamic Island — v12.1 (Manual)")
             } footer: {
-                Text("Use upside down with a timer or music active. Positive offsets move toward the charging port. Position may reset during layout or respring.")
+                Text("Hold upside down with music or a timer active. Default 780 is your calibrated edge position. Restore removes the Island-only orientation override.")
             }
             .disabled(!mgr.rcready || running)
 

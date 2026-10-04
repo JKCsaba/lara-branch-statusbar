@@ -1,0 +1,592 @@
+--- a/lara/Info.plist
++++ b/lara/Info.plist
+@@ -2,6 +2,8 @@
+ <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+ <plist version="1.0">
+ <dict>
++	<key>CFBundleDisplayName</key>
++	<string>Lara Island 12.1</string>
+ 	<key>UIBackgroundModes</key>
+ 	<array>
+ 		<string>audio</string>
+--- a/lara/kexploit/pe/rc.h
++++ b/lara/kexploit/pe/rc.h
+@@ -22,6 +22,10 @@
+ int restore_manual_status_and_dock(RemoteCall *proc);
+ int add_notch_gradient(RemoteCall *proc);
+ int remove_notch_gradient(RemoteCall *proc);
++int place_dynamic_island_with_inward_expansion(RemoteCall *proc, double edgePoints);
++int restore_dynamic_island_orientation(RemoteCall *proc);
++int move_dynamic_island_window(RemoteCall *proc, double offsetPoints);
++int restore_dynamic_island_window(RemoteCall *proc);
+ int enable_floating_dock(RemoteCall *proc);
+ int enable_grid_app_switcher(RemoteCall *proc);
+ int enable_debug_overlay(RemoteCall *proc);
+--- a/lara/kexploit/pe/rc.m
++++ b/lara/kexploit/pe/rc.m
+@@ -1779,3 +1779,464 @@
+     if (!lockResult) lockResult = movingResult;
+     return homeResult ? homeResult : lockResult;
+ }
++
++#include <math.h>
++
++// BEGIN v12.0 MANUAL DYNAMIC ISLAND WINDOW POSITION
++// References: VisibleIsland's SBSystemApertureWindow positioning and
++// UpsideDownDynamicIsland's separate window/content orientation behavior.
++// This manual control moves the identified window without changing rotation.
++// It adds no hooks and traverses no subviews.
++static __weak RemoteCall *rc_island120_original_proc;
++static uint64_t rc_island120_original_window;
++static CGRect rc_island120_original_frame;
++static bool rc_island120_have_original;
++
++static uint64_t rc_island120_send(RemoteCall *proc, uint64_t target,
++                                 uint64_t selector, uint64_t a0) {
++    if (!proc || proc.lastError.length || !target || !selector) return 0;
++    return remote_msg(proc, target, selector, a0, 0, 0, 0);
++}
++
++// Only public collection getters on UIApplication and UIWindowScene are used.
++// UIKit scenes are snapshotted once; only an Island scene's own windows are read.
++static uint64_t rc_island120_window(RemoteCall *proc) {
++    uint64_t sceneClass = remote_getClass(proc, "SBSystemApertureWindowScene");
++    uint64_t windowClass = remote_getClass(proc, "SBSystemApertureWindow");
++    uint64_t appClass = remote_getClass(proc, "UIApplication");
++    if (!sceneClass || !windowClass || !appClass || proc.lastError.length) return 0;
++    uint64_t shared = remote_sel(proc, "sharedApplication");
++    uint64_t connected = remote_sel(proc, "connectedScenes");
++    uint64_t allObjects = remote_sel(proc, "allObjects");
++    uint64_t countSel = remote_sel(proc, "count");
++    uint64_t atIndex = remote_sel(proc, "objectAtIndex:");
++    uint64_t kind = remote_sel(proc, "isKindOfClass:");
++    uint64_t windowsSel = remote_sel(proc, "windows");
++    if (proc.lastError.length || !shared || !connected || !allObjects ||
++        !countSel || !atIndex || !kind || !windowsSel) return 0;
++    uint64_t app = rc_island120_send(proc, appClass, shared, 0);
++    uint64_t scenes = rc_island120_send(proc, app, connected, 0);
++    uint64_t array = rc_island120_send(proc, scenes, allObjects, 0);
++    uint64_t count = rc_island120_send(proc, array, countSel, 0);
++    if (!array || count == 0 || count > 32 || proc.lastError.length) return 0;
++    uint64_t match = 0;
++    for (uint64_t i = 0; i < count; i++) {
++        uint64_t scene = rc_island120_send(proc, array, atIndex, i);
++        if (!rc_island120_send(proc, scene, kind, sceneClass)) continue;
++        uint64_t windows = rc_island120_send(proc, scene, windowsSel, 0);
++        uint64_t windowCount = rc_island120_send(proc, windows, countSel, 0);
++        if (!windows || windowCount > 8 || proc.lastError.length) return 0;
++        for (uint64_t j = 0; j < windowCount; j++) {
++            uint64_t window = rc_island120_send(proc, windows, atIndex, j);
++            if (!rc_island120_send(proc, window, kind, windowClass)) continue;
++            if (match && match != window) {
++                printf("(rc) v12.0 island: multiple Island windows; unchanged\n");
++                return 0;
++            }
++            match = window;
++        }
++    }
++    return proc.lastError.length ? 0 : match;
++}
++
++static bool rc_island120_valid_frame(CGRect frame) {
++    return isfinite(frame.origin.x) && isfinite(frame.origin.y) &&
++           isfinite(frame.size.width) && isfinite(frame.size.height) &&
++           frame.size.width >= 100 && frame.size.width <= 2000 &&
++           frame.size.height >= 40 && frame.size.height <= 3000;
++}
++
++static int rc_island120_apply(RemoteCall *proc, double offsetPoints, bool restore) {
++    if (!proc || proc.lastError.length) return -1;
++    if (!isfinite(offsetPoints) || offsetPoints < -900 || offsetPoints > 900) return -1;
++    printf("(rc) v12.0 island: resolve Island scene/window\n");
++    fflush(stdout);
++    uint64_t window = rc_island120_window(proc);
++    if (!window || proc.lastError.length) {
++        printf("(rc) v12.0 island: unique Island window unavailable; unchanged\n");
++        return -2;
++    }
++    uint64_t frameSel = remote_sel(proc, "frame");
++    if (!frameSel || proc.lastError.length) return -3;
++    CGRect before = remote_getCGRect(proc, window, frameSel);
++    if (proc.lastError.length || !rc_island120_valid_frame(before)) return -3;
++    bool sameWindow = rc_island120_have_original &&
++        rc_island120_original_proc == proc && rc_island120_original_window == window;
++    if (restore && !sameWindow) return -4;
++    if (!sameWindow) {
++        rc_island120_original_proc = proc;
++        rc_island120_original_window = window;
++        rc_island120_original_frame = before;
++        rc_island120_have_original = true;
++    }
++    CGRect desired = restore ? rc_island120_original_frame : before;
++    if (!restore) desired.origin.y = rc_island120_original_frame.origin.y + offsetPoints;
++    // Absolute offset from the captured original: repeated taps do not accumulate.
++    uint64_t setter = remote_sel(proc, "setFrame:");
++    if (!setter || proc.lastError.length) return -5;
++    printf("(rc) v12.0 island: window=0x%llx before=(%.1f,%.1f %.1fx%.1f) requestedY=%.1f restore=%d\n",
++           (unsigned long long)window, before.origin.x, before.origin.y,
++           before.size.width, before.size.height, desired.origin.y, restore);
++    fflush(stdout);
++    int result = rc_schedule_rect_on_main(proc, window, setter, desired,
++        restore ? "v120-island-restore" : "v120-island-position");
++    if (result || proc.lastError.length) return -5;
++    // Readback reports whether UIKit accepted the origin; it does not prove that
++    // the Island is visible, that touch/expanded states work, or that layout keeps it.
++    usleep(250000);
++    CGRect after = remote_getCGRect(proc, window, frameSel);
++    if (proc.lastError.length || !rc_island120_valid_frame(after)) return -6;
++    printf("(rc) v12.0 island: readback=(%.1f,%.1f %.1fx%.1f) requestedY=%.1f\n",
++           after.origin.x, after.origin.y, after.size.width, after.size.height, desired.origin.y);
++    fflush(stdout);
++    double difference = after.origin.y - desired.origin.y;
++    if (difference < -1.0 || difference > 1.0) return -7;
++    return 0;
++}
++
++int move_dynamic_island_window(RemoteCall *proc, double offsetPoints) {
++    return rc_island120_apply(proc, offsetPoints, false);
++}
++
++int restore_dynamic_island_window(RemoteCall *proc) {
++    return rc_island120_apply(proc, 0, true);
++}
++// END v12.0 MANUAL DYNAMIC ISLAND WINDOW POSITION
++
++// BEGIN v12.1 ISLAND-ONLY NATIVE PORTRAIT + VISUAL HALF TURN
++// Leave enable_upside_down and all 11.3 visuals unchanged. The confirmed 12.0
++// window resolver/position helper is retained above. No subviews are traversed.
++static __weak RemoteCall *rc_island121_proc;
++static uint64_t rc_island121_window_addr, rc_island121_controller;
++static uint64_t rc_island121_apply_method, rc_island121_original_imp;
++static uint64_t rc_island121_alias_sel, rc_island121_noop_imp;
++static NSInteger rc_island121_previous_orientation;
++static bool rc_island121_active;
++
++// Only constant-return leaf code is accepted as the orientation no-op. The
++// caller expects void, so its return register is ignored. No object memory or
++// argument register is read by this verified donor implementation.
++static bool rc_island121_constant_leaf(const uint32_t words[8]) {
++    size_t i = 0;
++    if (words[i] == 0xd503245fU) i++; // BTI c
++    uint32_t signing = 0;
++    if (words[i] == 0xd503233fU || words[i] == 0xd503237fU)
++        signing = words[i++]; // PACIASP / PACIBSP
++    if (words[i] != 0x52800020U && words[i] != 0xd2800020U) return false;
++    i++; // MOV W0,#1 / MOV X0,#1
++    if (!signing) return words[i] == 0xd65f03c0U; // RET
++    return words[i] == (signing == 0xd503233fU ? 0xd65f0bffU : 0xd65f0fffU);
++}
++
++static uint64_t rc_island121_object_member(RemoteCall *proc, uint64_t owner,
++                                          const char *name) {
++    if (!owner || proc.lastError.length) return 0;
++    uint64_t cls = RemoteArbCall(proc, object_getClass, owner);
++    if (!cls || proc.lastError.length) return 0;
++    uint64_t text = remote_alloc_str(proc, name);
++    if (!text || proc.lastError.length) return 0;
++    uint64_t ivar = RemoteArbCall(proc, class_getInstanceVariable, cls, text);
++    if (proc.lastError.length) return 0;
++    RemoteArbCall(proc, free, text);
++    if (!ivar || proc.lastError.length) return 0;
++    uint64_t encoding = RemoteArbCall(proc, ivar_getTypeEncoding, ivar);
++    char type = 0;
++    if (proc.lastError.length || !encoding ||
++        ![proc remoteRead:encoding to:&type size:1] || type != '@') return 0;
++    uint64_t result = RemoteArbCall(proc, object_getIvar, owner, ivar);
++    return proc.lastError.length ? 0 : result;
++}
++
++// Fall back to runtime metadata for a directly held, explicitly typed controller.
++// This inspects declared object fields; it does not traverse views or call their
++// arbitrary accessors. Generic id/delegate fields are handled by the named links.
++static uint64_t rc_island121_typed_controller(RemoteCall *proc, uint64_t owner,
++                                              uint64_t wantedClass, uint64_t kind) {
++    if (!owner || proc.lastError.length) return 0;
++    uint64_t cls = RemoteArbCall(proc, object_getClass, owner);
++    if (!cls || proc.lastError.length) return 0;
++    uint64_t slot = RemoteArbCall(proc, malloc, sizeof(uint32_t));
++    if (!slot || proc.lastError.length) return 0;
++    uint32_t zero = 0;
++    if (![proc remote_write:slot from:&zero size:sizeof(zero)]) {
++        RemoteArbCall(proc, free, slot);
++        return 0;
++    }
++    uint64_t ivars = RemoteArbCall(proc, class_copyIvarList, cls, slot);
++    uint32_t count = 0;
++    bool read = !proc.lastError.length && [proc remoteRead:slot to:&count size:sizeof(count)];
++    if (!proc.lastError.length) RemoteArbCall(proc, free, slot);
++    if (proc.lastError.length) return 0;
++    uint64_t entries[64] = {0};
++    uint64_t found = 0;
++    if (read && ivars && count <= 64 && [proc remoteRead:ivars to:entries size:count * sizeof(uint64_t)]) {
++        for (uint32_t i = 0; i < count && !proc.lastError.length; i++) {
++            uint64_t encoding = RemoteArbCall(proc, ivar_getTypeEncoding, entries[i]);
++            char type[64] = {0};
++            if (!encoding || proc.lastError.length || ![proc remoteRead:encoding to:type size:63]) continue;
++            if (strcmp(type, "@\"SBSystemApertureController\"") != 0) continue;
++            uint64_t candidate = RemoteArbCall(proc, object_getIvar, owner, entries[i]);
++            if (rc_island120_send(proc, candidate, kind, wantedClass)) {
++                found = candidate;
++                break;
++            }
++        }
++    }
++    if (ivars && !proc.lastError.length) RemoteArbCall(proc, free, ivars);
++    return proc.lastError.length ? 0 : found;
++}
++
++static uint64_t rc_island121_owner_controller(RemoteCall *proc, uint64_t owner,
++                                             uint64_t controllerClass,
++                                             uint64_t kind, uint64_t responds) {
++    if (!owner || proc.lastError.length) return 0;
++    if (rc_island120_send(proc, owner, kind, controllerClass)) return owner;
++    const char *members[] = {"_systemApertureController", "_controller",
++                             "_visibilityDelegate", "_delegate"};
++    for (size_t i = 0; i < sizeof(members) / sizeof(members[0]); i++) {
++        uint64_t candidate = rc_island121_object_member(proc, owner, members[i]);
++        if (proc.lastError.length) return 0;
++        if (rc_island120_send(proc, candidate, kind, controllerClass)) return candidate;
++    }
++    uint64_t getter = remote_sel(proc, "systemApertureController");
++    if (rc_island120_send(proc, owner, responds, getter)) {
++        uint64_t candidate = rc_island120_send(proc, owner, getter, 0);
++        if (rc_island120_send(proc, candidate, kind, controllerClass)) return candidate;
++    }
++    uint64_t typed = rc_island121_typed_controller(proc, owner, controllerClass, kind);
++    if (typed || proc.lastError.length) return typed;
++    // Record actual owner class when none of the typed controller links matched.
++    if (!proc.lastError.length) {
++        uint64_t cls = RemoteArbCall(proc, object_getClass, owner);
++        uint64_t name = cls && !proc.lastError.length ? RemoteArbCall(proc, class_getName, cls) : 0;
++        char buffer[96] = {0};
++        if (name && !proc.lastError.length && [proc remoteRead:name to:buffer size:95])
++            printf("(rc) v12.1 island: no controller link on %s\n", buffer);
++    }
++    return 0;
++}
++
++static uint64_t rc_island121_find_controller(RemoteCall *proc, uint64_t window,
++                                            uint64_t controllerClass) {
++    uint64_t kind = remote_sel(proc, "isKindOfClass:");
++    uint64_t responds = remote_sel(proc, "respondsToSelector:");
++    uint64_t scene = rc_island120_send(proc, window, remote_sel(proc, "windowScene"), 0);
++    uint64_t delegate = rc_island120_send(proc, scene, remote_sel(proc, "delegate"), 0);
++    uint64_t found = rc_island121_owner_controller(proc, delegate, controllerClass, kind, responds);
++    if (found || proc.lastError.length) return found;
++    uint64_t appClass = remote_getClass(proc, "UIApplication");
++    uint64_t app = rc_island120_send(proc, appClass, remote_sel(proc, "sharedApplication"), 0);
++    found = rc_island121_owner_controller(proc, app, controllerClass, kind, responds);
++    if (found || proc.lastError.length) return found;
++    uint64_t root = rc_island120_send(proc, window, remote_sel(proc, "rootViewController"), 0);
++    found = rc_island121_owner_controller(proc, root, controllerClass, kind, responds);
++    if (found || proc.lastError.length || !root) return found;
++    // Inspect direct child controllers only. No recursive view/controller walk.
++    uint64_t children = rc_island120_send(proc, root, remote_sel(proc, "childViewControllers"), 0);
++    uint64_t count = rc_island120_send(proc, children, remote_sel(proc, "count"), 0);
++    uint64_t atIndex = remote_sel(proc, "objectAtIndex:");
++    if (count > 8 || proc.lastError.length) return 0;
++    for (uint64_t i = 0; i < count; i++) {
++        uint64_t child = rc_island120_send(proc, children, atIndex, i);
++        found = rc_island121_owner_controller(proc, child, controllerClass, kind, responds);
++        if (found || proc.lastError.length) return found;
++    }
++    return 0;
++}
++
++static bool rc_island121_signature(RemoteCall *proc, uint64_t method) {
++    if (!method || proc.lastError.length) return false;
++    uint64_t count = RemoteArbCall(proc, method_getNumberOfArguments, method);
++    if (proc.lastError.length || count != 5) return false;
++    uint64_t encoding = RemoteArbCall(proc, method_getTypeEncoding, method);
++    char resultType = 0;
++    if (proc.lastError.length || !encoding ||
++        ![proc remoteRead:encoding to:&resultType size:1] || resultType != 'v') return false;
++    for (unsigned index = 2; index <= 4; index++) {
++        uint64_t type = RemoteArbCall(proc, method_copyArgumentType, method, index);
++        char value = 0;
++        bool read = type && !proc.lastError.length && [proc remoteRead:type to:&value size:1];
++        if (type && !proc.lastError.length) RemoteArbCall(proc, free, type);
++        if (!read || proc.lastError.length || value != (index == 4 ? '@' : 'q')) return false;
++    }
++    return true;
++}
++
++static int rc_island121_layer_value(RemoteCall *proc, uint64_t layer,
++                                   const char *keyPath, const char *number) {
++    if (proc.lastError.length) return -1;
++    uint64_t value = rc_decimal_number(proc, number);
++    uint64_t key = remote_NSString(proc, keyPath);
++    uint64_t setter = remote_sel(proc, "setValue:forKeyPath:");
++    if (!value || !key || !setter || proc.lastError.length) return -1;
++    uint64_t arguments[2] = {value, key};
++    int result = rc_invoke_objc_on_main_poll(proc, layer, setter, arguments, 2, NULL, 900,
++                                          "v121-island-visual");
++    return result || proc.lastError.length ? -1 : 0;
++}
++
++static int rc_island121_native(RemoteCall *proc, NSInteger orientation,
++                               NSInteger previous) {
++    uint64_t args[3] = {(uint64_t)orientation, (uint64_t)previous, 0};
++    int result = rc_invoke_objc_on_main_poll(proc, rc_island121_controller,
++        rc_island121_alias_sel, args, 3, NULL, 900, "v121-island-native-orientation");
++    return result || proc.lastError.length ? -1 : 0;
++}
++
++static NSInteger rc_island121_system_orientation(RemoteCall *proc) {
++    uint64_t appClass = remote_getClass(proc, "UIApplication");
++    uint64_t app = rc_island120_send(proc, appClass, remote_sel(proc, "sharedApplication"), 0);
++    uint64_t selector = remote_sel(proc, "activeInterfaceOrientation");
++    if (!rc_island120_send(proc, app, remote_sel(proc, "respondsToSelector:"), selector)) return 0;
++    return (NSInteger)rc_island120_send(proc, app, selector, 0);
++}
++
++int restore_dynamic_island_orientation(RemoteCall *proc) {
++    if (!proc || proc.lastError.length) return -1;
++    if (!rc_island121_active) return restore_dynamic_island_window(proc);
++    if (rc_island121_proc != proc) return -20;
++    uint64_t current = RemoteArbCall(proc, method_getImplementation, rc_island121_apply_method);
++    if (proc.lastError.length) return -22;
++    if (nativestrip(current) == nativestrip(rc_island121_noop_imp)) {
++        RemoteArbCall(proc, method_setImplementation, rc_island121_apply_method, rc_island121_original_imp);
++        if (proc.lastError.length) return -22;
++    } else if (nativestrip(current) != nativestrip(rc_island121_original_imp)) {
++        return -22; // Another modification owns this method; do not overwrite it.
++    }
++    uint64_t layer = rc_island120_send(proc, rc_island121_window_addr, remote_sel(proc, "layer"), 0);
++    if (!layer || proc.lastError.length) return -23;
++    if (rc_island121_layer_value(proc, layer, "transform.rotation.z", "0") ||
++        rc_island121_layer_value(proc, layer, "transform.translation.y", "0")) return -23;
++    int restored = restore_dynamic_island_window(proc);
++    if (restored || proc.lastError.length) return restored;
++    NSInteger orientation = rc_island121_system_orientation(proc);
++    if (orientation < 1 || orientation > 4) orientation = rc_island121_previous_orientation;
++    if (rc_island121_native(proc, orientation, UIInterfaceOrientationPortrait)) return -24;
++    rc_island121_active = false;
++    printf("(rc) v12.1 island: original orientation handler, frame and visual rotation restored\n");
++    return 0;
++}
++
++int place_dynamic_island_with_inward_expansion(RemoteCall *proc, double edgePoints) {
++    if (!proc || proc.lastError.length || !isfinite(edgePoints) || edgePoints < 0 || edgePoints > 900) return -1;
++    uint64_t window = rc_island120_window(proc);
++    if (!window || proc.lastError.length) return -2;
++    uint64_t layer = rc_island120_send(proc, window, remote_sel(proc, "layer"), 0);
++    if (!layer || proc.lastError.length) return -3;
++    if (rc_island121_active) {
++        if (rc_island121_proc != proc || rc_island121_window_addr != window) return -20;
++        uint64_t current = RemoteArbCall(proc, method_getImplementation, rc_island121_apply_method);
++        if (proc.lastError.length) return -22;
++        if (nativestrip(current) == nativestrip(rc_island121_original_imp)) {
++            RemoteArbCall(proc, method_setImplementation, rc_island121_apply_method, rc_island121_noop_imp);
++            if (proc.lastError.length) return -22;
++        } else if (nativestrip(current) != nativestrip(rc_island121_noop_imp)) return -22;
++    } else {
++        uint64_t frameSel = remote_sel(proc, "frame");
++        if (!frameSel || proc.lastError.length) return -3;
++        CGRect before = remote_getCGRect(proc, window, frameSel);
++        if (proc.lastError.length || !rc_island120_valid_frame(before)) return -3;
++        bool saved = rc_island120_have_original && rc_island120_original_proc == proc &&
++                     rc_island120_original_window == window;
++        // A fresh app cannot reconstruct an old 12.0 shifted origin safely.
++        if (!saved && (before.origin.y < -100 || before.origin.y > 100)) return -10;
++        uint64_t controllerClass = remote_getClass(proc, "SBSystemApertureController");
++        uint64_t controller = controllerClass && !proc.lastError.length
++            ? rc_island121_find_controller(proc, window, controllerClass) : 0;
++        if (!controller || proc.lastError.length) return -21;
++        uint64_t originalSel = remote_sel(proc, "_applyOrientation:withPreviousOrientation:animationSettings:");
++        uint64_t method = originalSel && !proc.lastError.length
++            ? RemoteArbCall(proc, class_getInstanceMethod, controllerClass, originalSel) : 0;
++        if (!rc_island121_signature(proc, method)) return -25;
++        uint64_t superclass = RemoteArbCall(proc, class_getSuperclass, controllerClass);
++        uint64_t inherited = superclass && !proc.lastError.length
++            ? RemoteArbCall(proc, class_getInstanceMethod, superclass, originalSel) : 0;
++        if (proc.lastError.length || inherited == method) return -25;
++        uint64_t donorClass = remote_getClass(proc, "SBCoverSheetPrimarySlidingViewController");
++        uint64_t donorSel = remote_sel(proc, "_canShowWhileLocked");
++        uint64_t donorMethod = donorClass && donorSel && !proc.lastError.length
++            ? RemoteArbCall(proc, class_getInstanceMethod, donorClass, donorSel) : 0;
++        uint64_t donor = donorMethod && !proc.lastError.length
++            ? RemoteArbCall(proc, method_getImplementation, donorMethod) : 0;
++        uint32_t words[8] = {0};
++        if (!donor || proc.lastError.length ||
++            ![proc remoteRead:nativestrip(donor) to:words size:sizeof(words)] ||
++            !rc_island121_constant_leaf(words)) return -26;
++        uint64_t original = RemoteArbCall(proc, method_getImplementation, method);
++        if (!original || proc.lastError.length) return -25;
++        uint64_t aliasSel = remote_sel(proc, "lara_island121_nativeOrientation:previousOrientation:animationSettings:");
++        uint64_t alias = aliasSel && !proc.lastError.length
++            ? RemoteArbCall(proc, class_getInstanceMethod, controllerClass, aliasSel) : 0;
++        if (alias && !proc.lastError.length) {
++            if (!rc_island121_signature(proc, alias)) return -25;
++            uint64_t aliasImp = RemoteArbCall(proc, method_getImplementation, alias);
++            if (proc.lastError.length || nativestrip(aliasImp) != nativestrip(original)) return -20;
++        } else {
++            uint64_t encoding = RemoteArbCall(proc, method_getTypeEncoding, method);
++            if (!encoding || !aliasSel || proc.lastError.length) return -25;
++            uint64_t added = RemoteArbCall(proc, class_addMethod, controllerClass, aliasSel, original, encoding);
++            if (!added || proc.lastError.length) return -25;
++        }
++        NSInteger orientation = rc_island121_system_orientation(proc);
++        if (proc.lastError.length || orientation != UIInterfaceOrientationPortraitUpsideDown) return -12;
++        if (!saved) {
++            rc_island120_original_proc = proc;
++            rc_island120_original_window = window;
++            rc_island120_original_frame = before;
++            rc_island120_have_original = true;
++        }
++        rc_island121_proc = proc;
++        rc_island121_window_addr = window;
++        rc_island121_controller = controller;
++        rc_island121_apply_method = method;
++        rc_island121_original_imp = original;
++        rc_island121_alias_sel = aliasSel;
++        rc_island121_noop_imp = donor;
++        rc_island121_previous_orientation = orientation;
++        RemoteArbCall(proc, method_setImplementation, method, donor);
++        if (proc.lastError.length) return -22;
++        rc_island121_active = true;
++        printf("(rc) v12.1 island: Island-only handler frozen; call saved native handler with portrait layout\n");
++    }
++    int applyError = -24;
++    if (rc_island121_native(proc, UIInterfaceOrientationPortrait, rc_island121_previous_orientation))
++        goto island121_rollback;
++    applyError = -23;
++    // Clear the prior visual transform before setting a UIView/ UIWindow frame.
++    if (rc_island121_layer_value(proc, layer, "transform.rotation.z", "0") ||
++        rc_island121_layer_value(proc, layer, "transform.translation.y", "0")) goto island121_rollback;
++    uint64_t frameSetter = remote_sel(proc, "setFrame:");
++    if (!frameSetter || proc.lastError.length) goto island121_rollback;
++    if (rc_schedule_rect_on_main(proc, window, frameSetter, rc_island120_original_frame,
++        "v121-island-native-window-frame") || proc.lastError.length) goto island121_rollback;
++    usleep(250000);
++    uint64_t readFrame = remote_sel(proc, "frame");
++    if (!readFrame || proc.lastError.length) goto island121_rollback;
++    CGRect resetFrame = remote_getCGRect(proc, window, readFrame);
++    if (proc.lastError.length || !rc_island120_valid_frame(resetFrame) ||
++        fabs(resetFrame.origin.y - rc_island120_original_frame.origin.y) > 1.0 ||
++        fabs(resetFrame.origin.x - rc_island120_original_frame.origin.x) > 1.0 ||
++        fabs(resetFrame.size.width - rc_island120_original_frame.size.width) > 1.0 ||
++        fabs(resetFrame.size.height - rc_island120_original_frame.size.height) > 1.0)
++        goto island121_rollback;
++    // iPhone 12: native height 844 and the user-confirmed 780 offset define a
++    // 64-point compact band. Rotate the full native window so expansion grows
++    // into the display. Offset is now a small calibration correction, not a
++    // 780-point translation of the full-screen window.
++    double correction = edgePoints - (rc_island120_original_frame.size.height - 64.0);
++    char number[64];
++    snprintf(number, sizeof(number), "%.17g", correction);
++    if (rc_island121_layer_value(proc, layer, "transform.rotation.z", "3.1415926535897931") ||
++        rc_island121_layer_value(proc, layer, "transform.translation.y", number)) goto island121_rollback;
++    printf("(rc) v12.1 island: native portrait held; full window visually rotated 180; edge=%.0f correction=%.1f\n",
++           edgePoints, correction);
++    fflush(stdout);
++    return 0;
++island121_rollback:
++    if (!proc.lastError.length) {
++        int rollback = restore_dynamic_island_orientation(proc);
++        printf("(rc) v12.1 island: apply failed %d; restore result %d\n", applyError, rollback);
++    }
++    return applyError;
++}
++// END v12.1 ISLAND-ONLY NATIVE PORTRAIT + VISUAL HALF TURN
+--- a/lara/views/tweaks/RemoteView.swift
++++ b/lara/views/tweaks/RemoteView.swift
+@@ -6,12 +6,14 @@
+ //
+ 
+ import SwiftUI
++import UIKit
+ import Darwin
+ 
+ struct RemoteView: View {
+     @ObservedObject var mgr: laramgr
+     @State private var statusBarTimeFormat: String = "HH:mm"
+     @State private var running: Bool = false
++    @State private var islandOffsetPoints: Int = 780
+     @State private var columns: Int = 5
+     @State private var performanceHUD: Int = -1
+     @AppStorage("rcdockunlimited") private var rcdockunlimited: Bool = false
+@@ -166,6 +168,45 @@
+                     Text("Remove Gradient")
+                 }
+             }
++
++            Section {
++                Stepper(value: $islandOffsetPoints, in: 0...900, step: 10) {
++                    Text("Island edge: \(islandOffsetPoints) pt")
++                }
++                Button {
++                    run("Move Dynamic Island — v12.1") {
++                        let result = place_dynamic_island_with_inward_expansion(mgr.sbProc, Double(islandOffsetPoints))
++                        switch result {
++                        case 0: return "Island portrait layout + visual rotation applied. Check expanded music."
++                        case -2: return "Island window unavailable; nothing changed."
++                        case -10: return "Old Island offset detected. Respring once, then initialize Lara and try again."
++                        case -12: return "Hold the phone upside down before applying this control."
++                        case -20: return "Island override is from another session. Respring to reset it."
++                        case -21: return "Native Island controller unavailable; orientation unchanged."
++                        case -25: return "Island orientation method signature unsupported."
++                        case -26: return "Orientation no-op could not be verified; override not installed."
++                        default: return "Island position failed (\(result))."
++                        }
++                    }
++                } label: {
++                    Text("Place Island + Fix Expansion")
++                }
++                Button {
++                    run("Restore Dynamic Island — v12.1") {
++                        let result = restore_dynamic_island_orientation(mgr.sbProc)
++                        return result == 0 ? "Original Island orientation and position restored."
++                            : result == -4 ? "No original Island position saved in this session."
++                            : "Island restore failed (\(result))."
++                    }
++                } label: {
++                    Text("Restore Dynamic Island")
++                }
++            } header: {
++                Text("Dynamic Island — v12.1 (Manual)")
++            } footer: {
++                Text("Hold upside down with music or a timer active. Default 780 is your calibrated edge position. Restore removes the Island-only orientation override.")
++            }
++            .disabled(!mgr.rcready || running)
+ 
+             Section {
+                 Button {
+--- a/lara.xcodeproj/project.pbxproj
++++ b/lara.xcodeproj/project.pbxproj
+@@ -500,7 +500,7 @@
+ 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+ 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+ 				CODE_SIGN_STYLE = Automatic;
+-				CURRENT_PROJECT_VERSION = Release;
++				CURRENT_PROJECT_VERSION = 122;
+ 				DEVELOPMENT_TEAM = "";
+ 				ENABLE_PREVIEWS = YES;
+ 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+@@ -527,7 +527,7 @@
+ 					"$(inherited)",
+ 					"$(PROJECT_DIR)/lara/lib",
+ 				);
+-				MARKETING_VERSION = 0.2;
++				MARKETING_VERSION = 0.2.122;
+ 				PRODUCT_BUNDLE_IDENTIFIER = com.roooot.lara;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+@@ -552,7 +552,7 @@
+ 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+ 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+ 				CODE_SIGN_STYLE = Automatic;
+-				CURRENT_PROJECT_VERSION = Release;
++				CURRENT_PROJECT_VERSION = 122;
+ 				DEVELOPMENT_TEAM = "";
+ 				ENABLE_PREVIEWS = YES;
+ 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+@@ -579,7 +579,7 @@
+ 					"$(inherited)",
+ 					"$(PROJECT_DIR)/lara/lib",
+ 				);
+-				MARKETING_VERSION = 0.2;
++				MARKETING_VERSION = 0.2.122;
+ 				PRODUCT_BUNDLE_IDENTIFIER = com.roooot.lara;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
