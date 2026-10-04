@@ -1,0 +1,315 @@
+--- a/lara/Info.plist
++++ b/lara/Info.plist
+@@ -2,6 +2,8 @@
+ <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+ <plist version="1.0">
+ <dict>
++	<key>CFBundleDisplayName</key>
++	<string>Lara Island 12.5</string>
+ 	<key>UIBackgroundModes</key>
+ 	<array>
+ 		<string>audio</string>
+--- a/lara/kexploit/pe/rc.h
++++ b/lara/kexploit/pe/rc.h
+@@ -22,6 +22,10 @@
+ int restore_manual_status_and_dock(RemoteCall *proc);
+ int add_notch_gradient(RemoteCall *proc);
+ int remove_notch_gradient(RemoteCall *proc);
++int move_dynamic_island_window(RemoteCall *proc, double offsetPoints);
++int restore_dynamic_island_window(RemoteCall *proc);
++int mirror_dynamic_island_content(RemoteCall *proc, double offsetPoints);
++int restore_mirrored_dynamic_island(RemoteCall *proc);
+ int enable_floating_dock(RemoteCall *proc);
+ int enable_grid_app_switcher(RemoteCall *proc);
+ int enable_debug_overlay(RemoteCall *proc);
+--- a/lara/kexploit/pe/rc.m
++++ b/lara/kexploit/pe/rc.m
+@@ -1779,3 +1779,192 @@
+     if (!lockResult) lockResult = movingResult;
+     return homeResult ? homeResult : lockResult;
+ }
++
++#include <math.h>
++
++// BEGIN v12.0 MANUAL DYNAMIC ISLAND WINDOW POSITION
++// References: VisibleIsland's SBSystemApertureWindow positioning and
++// UpsideDownDynamicIsland's separate window/content orientation behavior.
++// This manual control moves the identified window without changing rotation.
++// It adds no hooks and traverses no subviews.
++static __weak RemoteCall *rc_island120_original_proc;
++static uint64_t rc_island120_original_window;
++static CGRect rc_island120_original_frame;
++static bool rc_island120_have_original;
++
++static uint64_t rc_island120_send(RemoteCall *proc, uint64_t target,
++                                 uint64_t selector, uint64_t a0) {
++    if (!proc || proc.lastError.length || !target || !selector) return 0;
++    return remote_msg(proc, target, selector, a0, 0, 0, 0);
++}
++
++// Only public collection getters on UIApplication and UIWindowScene are used.
++// UIKit scenes are snapshotted once; only an Island scene's own windows are read.
++static uint64_t rc_island120_window(RemoteCall *proc) {
++    uint64_t sceneClass = remote_getClass(proc, "SBSystemApertureWindowScene");
++    uint64_t windowClass = remote_getClass(proc, "SBSystemApertureWindow");
++    uint64_t appClass = remote_getClass(proc, "UIApplication");
++    if (!sceneClass || !windowClass || !appClass || proc.lastError.length) return 0;
++    uint64_t shared = remote_sel(proc, "sharedApplication");
++    uint64_t connected = remote_sel(proc, "connectedScenes");
++    uint64_t allObjects = remote_sel(proc, "allObjects");
++    uint64_t countSel = remote_sel(proc, "count");
++    uint64_t atIndex = remote_sel(proc, "objectAtIndex:");
++    uint64_t kind = remote_sel(proc, "isKindOfClass:");
++    uint64_t windowsSel = remote_sel(proc, "windows");
++    if (proc.lastError.length || !shared || !connected || !allObjects ||
++        !countSel || !atIndex || !kind || !windowsSel) return 0;
++    uint64_t app = rc_island120_send(proc, appClass, shared, 0);
++    uint64_t scenes = rc_island120_send(proc, app, connected, 0);
++    uint64_t array = rc_island120_send(proc, scenes, allObjects, 0);
++    uint64_t count = rc_island120_send(proc, array, countSel, 0);
++    if (!array || count == 0 || count > 32 || proc.lastError.length) return 0;
++    uint64_t match = 0;
++    for (uint64_t i = 0; i < count; i++) {
++        uint64_t scene = rc_island120_send(proc, array, atIndex, i);
++        if (!rc_island120_send(proc, scene, kind, sceneClass)) continue;
++        uint64_t windows = rc_island120_send(proc, scene, windowsSel, 0);
++        uint64_t windowCount = rc_island120_send(proc, windows, countSel, 0);
++        if (!windows || windowCount > 8 || proc.lastError.length) return 0;
++        for (uint64_t j = 0; j < windowCount; j++) {
++            uint64_t window = rc_island120_send(proc, windows, atIndex, j);
++            if (!rc_island120_send(proc, window, kind, windowClass)) continue;
++            if (match && match != window) {
++                printf("(rc) v12.0 island: multiple Island windows; unchanged\n");
++                return 0;
++            }
++            match = window;
++        }
++    }
++    return proc.lastError.length ? 0 : match;
++}
++
++static bool rc_island120_valid_frame(CGRect frame) {
++    return isfinite(frame.origin.x) && isfinite(frame.origin.y) &&
++           isfinite(frame.size.width) && isfinite(frame.size.height) &&
++           frame.size.width >= 100 && frame.size.width <= 2000 &&
++           frame.size.height >= 40 && frame.size.height <= 3000;
++}
++
++static int rc_island120_apply(RemoteCall *proc, double offsetPoints, bool restore) {
++    if (!proc || proc.lastError.length) return -1;
++    if (!isfinite(offsetPoints) || offsetPoints < -900 || offsetPoints > 900) return -1;
++    printf("(rc) v12.0 island: resolve Island scene/window\n");
++    fflush(stdout);
++    uint64_t window = rc_island120_window(proc);
++    if (!window || proc.lastError.length) {
++        printf("(rc) v12.0 island: unique Island window unavailable; unchanged\n");
++        return -2;
++    }
++    uint64_t frameSel = remote_sel(proc, "frame");
++    if (!frameSel || proc.lastError.length) return -3;
++    CGRect before = remote_getCGRect(proc, window, frameSel);
++    if (proc.lastError.length || !rc_island120_valid_frame(before)) return -3;
++    bool sameWindow = rc_island120_have_original &&
++        rc_island120_original_proc == proc && rc_island120_original_window == window;
++    if (restore && !sameWindow) return -4;
++    if (!sameWindow) {
++        rc_island120_original_proc = proc;
++        rc_island120_original_window = window;
++        rc_island120_original_frame = before;
++        rc_island120_have_original = true;
++    }
++    CGRect desired = restore ? rc_island120_original_frame : before;
++    if (!restore) desired.origin.y = rc_island120_original_frame.origin.y + offsetPoints;
++    // Absolute offset from the captured original: repeated taps do not accumulate.
++    uint64_t setter = remote_sel(proc, "setFrame:");
++    if (!setter || proc.lastError.length) return -5;
++    printf("(rc) v12.0 island: window=0x%llx before=(%.1f,%.1f %.1fx%.1f) requestedY=%.1f restore=%d\n",
++           (unsigned long long)window, before.origin.x, before.origin.y,
++           before.size.width, before.size.height, desired.origin.y, restore);
++    fflush(stdout);
++    int result = rc_schedule_rect_on_main(proc, window, setter, desired,
++        restore ? "v120-island-restore" : "v120-island-position");
++    if (result || proc.lastError.length) return -5;
++    // Readback reports whether UIKit accepted the origin; it does not prove that
++    // the Island is visible, that touch/expanded states work, or that layout keeps it.
++    usleep(250000);
++    CGRect after = remote_getCGRect(proc, window, frameSel);
++    if (proc.lastError.length || !rc_island120_valid_frame(after)) return -6;
++    printf("(rc) v12.0 island: readback=(%.1f,%.1f %.1fx%.1f) requestedY=%.1f\n",
++           after.origin.x, after.origin.y, after.size.width, after.size.height, desired.origin.y);
++    fflush(stdout);
++    double difference = after.origin.y - desired.origin.y;
++    if (difference < -1.0 || difference > 1.0) return -7;
++    return 0;
++}
++
++int move_dynamic_island_window(RemoteCall *proc, double offsetPoints) {
++    return rc_island120_apply(proc, offsetPoints, false);
++}
++
++int restore_dynamic_island_window(RemoteCall *proc) {
++    return rc_island120_apply(proc, 0, true);
++}
++// END v12.0 MANUAL DYNAMIC ISLAND WINDOW POSITION
++
++// BEGIN v12.5 ISLAND CONTENT MIRROR
++// The v12.0 window movement remains the only placement operation. The visual
++// correction is applied to the already-loaded root content view, not the
++// full-screen SBSystemApertureWindow container. No autorotation method is
++// replaced or invoked.
++static __weak RemoteCall *rc_island125_proc;
++static uint64_t rc_island125_window, rc_island125_content_layer;
++static bool rc_island125_active;
++
++static int rc_island125_set_layer_rotation(RemoteCall *proc, uint64_t layer, bool mirrored) {
++    if (!proc || !layer || proc.lastError.length) return -1;
++    uint64_t value = rc_decimal_number(proc, mirrored ? "3.14159265358979323846" : "0");
++    uint64_t key = remote_NSString(proc, "transform.rotation.z");
++    uint64_t setter = remote_sel(proc, "setValue:forKeyPath:");
++    if (!value || !key || !setter || proc.lastError.length) return -2;
++    uint64_t args[2] = {value, key};
++    int result = rc_schedule_objc_invocation_on_main(proc, layer, setter, args, 2,
++        mirrored ? "v125-island-content-pi" : "v125-island-content-zero");
++    return result || proc.lastError.length ? -3 : 0;
++}
++
++static uint64_t rc_island125_content_layer(RemoteCall *proc, uint64_t window) {
++    uint64_t root = rc_island120_send(proc, window, remote_sel(proc, "rootViewController"), 0);
++    if (!root || proc.lastError.length) return 0;
++    uint64_t viewIfLoaded = remote_sel(proc, "viewIfLoaded");
++    uint64_t responds = remote_sel(proc, "respondsToSelector:");
++    if (!viewIfLoaded || !responds || !rc_island120_send(proc, root, responds, viewIfLoaded)) return 0;
++    uint64_t view = rc_island120_send(proc, root, viewIfLoaded, 0);
++    if (!view || proc.lastError.length) return 0;
++    return rc_island120_send(proc, view, remote_sel(proc, "layer"), 0);
++}
++
++int mirror_dynamic_island_content(RemoteCall *proc, double offsetPoints) {
++    if (!proc || proc.lastError.length) return -1;
++    uint64_t window = rc_island120_window(proc);
++    if (!window || proc.lastError.length) return -2;
++    uint64_t layer = rc_island125_content_layer(proc, window);
++    if (!layer || proc.lastError.length) return -3;
++    if (rc_island125_active && (rc_island125_proc != proc || rc_island125_window != window)) return -4;
++    if (!rc_island125_active) {
++        rc_island125_proc = proc;
++        rc_island125_window = window;
++        rc_island125_content_layer = layer;
++    }
++    int moved = move_dynamic_island_window(proc, offsetPoints);
++    if (moved) return -5;
++    if (rc_island125_set_layer_rotation(proc, layer, true)) return -6;
++    rc_island125_active = true;
++    printf("(rc) v12.5 island: root content layer mirrored; window moved to %.0f; no autorotation hook\n", offsetPoints);
++    fflush(stdout);
++    return 0;
++}
++
++int restore_mirrored_dynamic_island(RemoteCall *proc) {
++    if (!proc || proc.lastError.length) return -1;
++    if (!rc_island125_active || rc_island125_proc != proc) return restore_dynamic_island_window(proc);
++    if (rc_island125_set_layer_rotation(proc, rc_island125_content_layer, false)) return -2;
++    int result = restore_dynamic_island_window(proc);
++    if (!result) {
++        rc_island125_active = false;
++        printf("(rc) v12.5 island: root content layer and frame restored\n");
++    }
++    return result;
++}
++// END v12.5 ISLAND CONTENT MIRROR
+--- a/lara/views/tweaks/RemoteView.swift
++++ b/lara/views/tweaks/RemoteView.swift
+@@ -6,12 +6,14 @@
+ //
+ 
+ import SwiftUI
++import UIKit
+ import Darwin
+ 
+ struct RemoteView: View {
+     @ObservedObject var mgr: laramgr
+     @State private var statusBarTimeFormat: String = "HH:mm"
+     @State private var running: Bool = false
++    @State private var islandOffsetPoints: Int = min(900, max(0, Int(UIScreen.main.bounds.height) - 104))
+     @State private var columns: Int = 5
+     @State private var performanceHUD: Int = -1
+     @AppStorage("rcdockunlimited") private var rcdockunlimited: Bool = false
+@@ -166,6 +168,40 @@
+                     Text("Remove Gradient")
+                 }
+             }
++
++            Section {
++                Stepper(value: $islandOffsetPoints, in: -900...900, step: 10) {
++                    Text("Island offset: \(islandOffsetPoints) pt")
++                }
++                Button {
++                    run("Mirror Island Content — v12.5") {
++                        let result = mirror_dynamic_island_content(mgr.sbProc, Double(islandOffsetPoints))
++                        switch result {
++                        case 0: return "Island content mirrored and moved to the selected offset."
++                        case -2: return "Island window unavailable; nothing changed."
++                        case -3: return "Island root content view is unavailable; nothing changed."
++                        default: return "Island content mirror failed (\(result))."
++                        }
++                    }
++                } label: {
++                    Text("Mirror Island Content")
++                }
++                Button {
++                    run("Restore Dynamic Island — v12.5") {
++                        let result = restore_mirrored_dynamic_island(mgr.sbProc)
++                        return result == 0 ? "Original Island content and position restored."
++                            : result == -4 ? "No original Island position saved in this session."
++                            : "Island restore failed (\(result))."
++                    }
++                } label: {
++                    Text("Restore Dynamic Island")
++                }
++            } header: {
++                Text("Dynamic Island — v12.5 (Content Mirror)")
++            } footer: {
++                Text("Enable upside-down first, leave 780 selected, then tap Mirror Island Content once. This mirrors the loaded content view and leaves the window autorotation path untouched.")
++            }
++            .disabled(!mgr.rcready || running)
+ 
+             Section {
+                 Button {
+--- a/lara.xcodeproj/project.pbxproj
++++ b/lara.xcodeproj/project.pbxproj
+@@ -500,7 +500,7 @@
+ 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+ 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+ 				CODE_SIGN_STYLE = Automatic;
+-				CURRENT_PROJECT_VERSION = Release;
++				CURRENT_PROJECT_VERSION = 125;
+ 				DEVELOPMENT_TEAM = "";
+ 				ENABLE_PREVIEWS = YES;
+ 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+@@ -527,7 +527,7 @@
+ 					"$(inherited)",
+ 					"$(PROJECT_DIR)/lara/lib",
+ 				);
+-				MARKETING_VERSION = 0.2;
++				MARKETING_VERSION = 0.2.125;
+ 				PRODUCT_BUNDLE_IDENTIFIER = com.roooot.lara;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+@@ -552,7 +552,7 @@
+ 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+ 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+ 				CODE_SIGN_STYLE = Automatic;
+-				CURRENT_PROJECT_VERSION = Release;
++				CURRENT_PROJECT_VERSION = 125;
+ 				DEVELOPMENT_TEAM = "";
+ 				ENABLE_PREVIEWS = YES;
+ 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+@@ -579,7 +579,7 @@
+ 					"$(inherited)",
+ 					"$(PROJECT_DIR)/lara/lib",
+ 				);
+-				MARKETING_VERSION = 0.2;
++				MARKETING_VERSION = 0.2.125;
+ 				PRODUCT_BUNDLE_IDENTIFIER = com.roooot.lara;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

@@ -174,22 +174,22 @@ struct RemoteView: View {
                     Text("Island offset: \(islandOffsetPoints) pt")
                 }
                 Button {
-                    run("Freeze + Mirror Dynamic Island — v12.4") {
-                        let result = freeze_and_place_dynamic_island(mgr.sbProc, Double(islandOffsetPoints))
+                    run("Mirror Island Content — v12.5") {
+                        let result = mirror_dynamic_island_content(mgr.sbProc, Double(islandOffsetPoints))
                         switch result {
-                        case 0: return "Island autorotation frozen and mirrored at the selected offset."
+                        case 0: return "Island content mirrored and moved to the selected offset."
                         case -2: return "Island window unavailable; nothing changed."
-                        case -3: return "Island window does not expose the autorotation control."
-                        default: return "Island freeze/mirror failed (\(result))."
+                        case -3: return "Island root content view is unavailable; nothing changed."
+                        default: return "Island content mirror failed (\(result))."
                         }
                     }
                 } label: {
-                    Text("Freeze + Mirror Dynamic Island")
+                    Text("Mirror Island Content")
                 }
                 Button {
-                    run("Restore Dynamic Island — v12.4") {
-                        let result = restore_frozen_dynamic_island(mgr.sbProc)
-                        return result == 0 ? "Original Island autorotation, rotation and position restored."
+                    run("Restore Dynamic Island — v12.5") {
+                        let result = restore_mirrored_dynamic_island(mgr.sbProc)
+                        return result == 0 ? "Original Island content and position restored."
                             : result == -4 ? "No original Island position saved in this session."
                             : "Island restore failed (\(result))."
                     }
@@ -197,9 +197,9 @@ struct RemoteView: View {
                     Text("Restore Dynamic Island")
                 }
             } header: {
-                Text("Dynamic Island — v12.4 (Window Freeze)")
+                Text("Dynamic Island — v12.5 (Content Mirror)")
             } footer: {
-                Text("Enable upside-down first, then use the freeze/mirror button once. 780 is the working offset. Respring restores the window if needed.")
+                Text("Enable upside-down first, leave 780 selected, then tap Mirror Island Content once. This mirrors the loaded content view and leaves the window autorotation path untouched.")
             }
             .disabled(!mgr.rcready || running)
 
