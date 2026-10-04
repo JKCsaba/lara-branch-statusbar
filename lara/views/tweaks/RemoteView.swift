@@ -173,17 +173,17 @@ struct RemoteView: View {
                     Text("Search lift: \(searchLiftPoints) pt")
                 }
                 Button {
-                    run("Lift Home Search Pill — v11.9") {
+                    run("Lift Home Search Pill — v11.10") {
                         let result = lift_home_search_control(mgr.sbProc, Double(searchLiftPoints))
                         return result == 0
-                            ? "Search control move queued."
-                            : "Search move stopped (\(result)); no move queued."
+                            ? "Search move completed."
+                            : "Search move failed (\(result))."
                     }
                 } label: {
                     Text("Lift Home Search Pill")
                 }
                 Button {
-                    run("Restore Home Search Pill — v11.9") {
+                    run("Restore Home Search Pill — v11.10") {
                         let result = restore_home_search_control(mgr.sbProc)
                         return "restore_home_search_control() -> \(result)"
                     }
@@ -191,7 +191,7 @@ struct RemoteView: View {
                     Text("Restore Home Search Pill")
                 }
             } header: {
-                Text("Home Search — v11.9")
+                Text("Home Search — v11.10")
             }
             .disabled(!mgr.rcready || running)
 
