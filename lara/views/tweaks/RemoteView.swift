@@ -25,7 +25,6 @@ struct RemoteView: View {
     @State private var hsColumns: Int = 4
     @State private var freakyrunning: Bool = false
     @State private var freakyseq: Int = 0
-    @State private var searchPillLift: Int = 60
 
     private var dockMaxColumns: Int { rcdockunlimited ? 50 : 10 }
 
@@ -149,34 +148,6 @@ struct RemoteView: View {
                     Text("Restore Status Bar + Dock")
                 }
 
-                Stepper(value: $searchPillLift, in: 0...140, step: 2) {
-                    HStack {
-                        Text("Search pill lift")
-                        Spacer()
-                        Text("\(searchPillLift) pt")
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-
-                Button {
-                    run("Lift Home Search Pill \(searchPillLift)pt") {
-                        let result = apply_home_search_pill_lift(mgr.sbProc, Double(searchPillLift))
-                        return "apply_home_search_pill_lift(\(searchPillLift)) -> \(result)"
-                    }
-                } label: {
-                    Text("Lift Home Search Pill")
-                }
-
-                Button {
-                    run("Restore Home Search Pill") {
-                        let result = restore_home_search_pill(mgr.sbProc)
-                        return "restore_home_search_pill() -> \(result)"
-                    }
-                } label: {
-                    Text("Restore Home Search Pill")
-                }
-
                 Button {
                     run("Add Gradient") {
                         let result = add_notch_gradient(mgr.sbProc)
@@ -195,6 +166,27 @@ struct RemoteView: View {
                     Text("Remove Gradient")
                 }
             }
+
+            Section {
+                Button {
+                    run("Diagnose Home Search Pill — v11.7") {
+                        let result = diagnose_home_search_pill(mgr.sbProc)
+                        if result > 0 {
+                            return "Search diagnostic complete: \(result) pill(s). Export the log."
+                        }
+                        return result == 0
+                            ? "Search diagnostic: no pill found. Export the log."
+                            : "Search diagnostic stopped (\(result)). Export the log."
+                    }
+                } label: {
+                    Text("Diagnose Home Search Pill")
+                }
+            } header: {
+                Text("Home Search — v11.7 diagnostic")
+            } footer: {
+                Text("Records the Search pill and its surrounding views. Does not move the pill.")
+            }
+            .disabled(!mgr.rcready || running)
 
             Section {
                 Button {
