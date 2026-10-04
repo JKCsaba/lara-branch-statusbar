@@ -173,7 +173,7 @@ struct RemoteView: View {
                     Text("Search lift: \(searchLiftPoints) pt")
                 }
                 Button {
-                    run("Lift Home Search Pill — v11.8") {
+                    run("Lift Home Search Pill — v11.9") {
                         let result = lift_home_search_control(mgr.sbProc, Double(searchLiftPoints))
                         return result == 0
                             ? "Search control move queued."
@@ -183,7 +183,7 @@ struct RemoteView: View {
                     Text("Lift Home Search Pill")
                 }
                 Button {
-                    run("Restore Home Search Pill — v11.8") {
+                    run("Restore Home Search Pill — v11.9") {
                         let result = restore_home_search_control(mgr.sbProc)
                         return "restore_home_search_control() -> \(result)"
                     }
@@ -191,7 +191,7 @@ struct RemoteView: View {
                     Text("Restore Home Search Pill")
                 }
             } header: {
-                Text("Home Search — v11.8")
+                Text("Home Search — v11.9")
             }
             .disabled(!mgr.rcready || running)
 
