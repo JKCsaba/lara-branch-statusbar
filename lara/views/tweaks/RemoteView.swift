@@ -6,13 +6,14 @@
 //
 
 import SwiftUI
+import UIKit
 import Darwin
 
 struct RemoteView: View {
     @ObservedObject var mgr: laramgr
     @State private var statusBarTimeFormat: String = "HH:mm"
     @State private var running: Bool = false
-    @State private var searchLiftPoints: Int = 60
+    @State private var islandOffsetPoints: Int = min(900, max(0, Int(UIScreen.main.bounds.height) - 104))
     @State private var columns: Int = 5
     @State private var performanceHUD: Int = -1
     @AppStorage("rcdockunlimited") private var rcdockunlimited: Bool = false
@@ -169,29 +170,36 @@ struct RemoteView: View {
             }
 
             Section {
-                Stepper(value: $searchLiftPoints, in: 0...140, step: 5) {
-                    Text("Search lift: \(searchLiftPoints) pt")
+                Stepper(value: $islandOffsetPoints, in: -900...900, step: 10) {
+                    Text("Island offset: \(islandOffsetPoints) pt")
                 }
                 Button {
-                    run("Lift Home Search Pill — v11.10") {
-                        let result = lift_home_search_control(mgr.sbProc, Double(searchLiftPoints))
-                        return result == 0
-                            ? "Search move completed."
-                            : "Search move failed (\(result))."
+                    run("Move Dynamic Island — v12.0") {
+                        let result = move_dynamic_island_window(mgr.sbProc, Double(islandOffsetPoints))
+                        switch result {
+                        case 0: return "Island position accepted. Check the Island on Home Screen."
+                        case -2: return "Island window unavailable; nothing changed."
+                        case -7: return "Island position was not accepted or was reset by layout."
+                        default: return "Island position failed (\(result))."
+                        }
                     }
                 } label: {
-                    Text("Lift Home Search Pill")
+                    Text("Move Dynamic Island")
                 }
                 Button {
-                    run("Restore Home Search Pill — v11.10") {
-                        let result = restore_home_search_control(mgr.sbProc)
-                        return "restore_home_search_control() -> \(result)"
+                    run("Restore Dynamic Island — v12.0") {
+                        let result = restore_dynamic_island_window(mgr.sbProc)
+                        return result == 0 ? "Original Island position accepted."
+                            : result == -4 ? "No original Island position saved in this session."
+                            : "Island restore failed (\(result))."
                     }
                 } label: {
-                    Text("Restore Home Search Pill")
+                    Text("Restore Dynamic Island")
                 }
             } header: {
-                Text("Home Search — v11.10")
+                Text("Dynamic Island — v12.0 (Manual)")
+            } footer: {
+                Text("Use upside down with a timer or music active. Positive offsets move toward the charging port. Position may reset during layout or respring.")
             }
             .disabled(!mgr.rcready || running)
 
