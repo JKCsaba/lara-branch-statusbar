@@ -177,9 +177,10 @@ struct RemoteView: View {
                     run("Mirror Dynamic Island — v11.4 style") {
                         let result = mirror_dynamic_island_window(mgr.sbProc, Double(islandOffsetPoints))
                         switch result {
-                        case 0: return "Island moved and visually mirrored."
+                        case 0: return "Island content moved and visually mirrored."
                         case -2: return "Island window unavailable; nothing changed."
-                        default: return "Island mirror failed (\(result))."
+                        case -3: return "Island content view unavailable; nothing changed."
+                        default: return "Island content mirror failed (\(result))."
                         }
                     }
                 } label: {
@@ -196,9 +197,9 @@ struct RemoteView: View {
                     Text("Restore Dynamic Island")
                 }
             } header: {
-                Text("Dynamic Island — v11.4 style (Window Mirror)")
+                Text("Dynamic Island — v12.6 (Content Mirror)")
             } footer: {
-                Text("Enable upside-down first, leave 780 selected, then tap Mirror Dynamic Island. This mirrors the window without preventing SpringBoard autorotation.")
+                Text("Enable upside-down first, leave 780 selected, then tap Mirror Dynamic Island. Only the Island content is mirrored; the outer window is left to SpringBoard.")
             }
             .disabled(!mgr.rcready || running)
 
