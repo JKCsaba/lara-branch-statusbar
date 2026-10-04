@@ -25,6 +25,7 @@ struct RemoteView: View {
     @State private var hsColumns: Int = 4
     @State private var freakyrunning: Bool = false
     @State private var freakyseq: Int = 0
+    @State private var searchPillLift: Int = 60
 
     private var dockMaxColumns: Int { rcdockunlimited ? 50 : 10 }
 
@@ -148,22 +149,32 @@ struct RemoteView: View {
                     Text("Restore Status Bar + Dock")
                 }
 
-                Button {
-                    run("Move Dynamic Island to Top") {
-                        let result = move_dynamic_island_to_opposite_end(mgr.sbProc)
-                        return "move_dynamic_island_to_opposite_end() -> \(result)"
+                Stepper(value: $searchPillLift, in: 0...140, step: 2) {
+                    HStack {
+                        Text("Search pill lift")
+                        Spacer()
+                        Text("\(searchPillLift) pt")
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
                     }
-                } label: {
-                    Text("Move Dynamic Island to Top")
                 }
 
                 Button {
-                    run("Restore Dynamic Island Position") {
-                        let result = restore_dynamic_island_position(mgr.sbProc)
-                        return "restore_dynamic_island_position() -> \(result)"
+                    run("Lift Home Search Pill \(searchPillLift)pt") {
+                        let result = apply_home_search_pill_lift(mgr.sbProc, Double(searchPillLift))
+                        return "apply_home_search_pill_lift(\(searchPillLift)) -> \(result)"
                     }
                 } label: {
-                    Text("Restore Dynamic Island Position")
+                    Text("Lift Home Search Pill")
+                }
+
+                Button {
+                    run("Restore Home Search Pill") {
+                        let result = restore_home_search_pill(mgr.sbProc)
+                        return "restore_home_search_pill() -> \(result)"
+                    }
+                } label: {
+                    Text("Restore Home Search Pill")
                 }
 
                 Button {
