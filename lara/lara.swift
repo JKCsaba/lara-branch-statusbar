@@ -132,7 +132,7 @@ struct lara: App {
     }
 
     private func handlebg() {
-        guard mgr.rcready else { return }
+        guard mgr.rcready, !mgr.islandDiagnosticCaptureActive else { return }
 
         var bgTask: UIBackgroundTaskIdentifier = .invalid
 

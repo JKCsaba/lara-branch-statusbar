@@ -297,6 +297,14 @@ class Logger: ObservableObject {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let url = docs.appendingPathComponent("lara.log")
         logfileurl = url
+
+        // Keep the previous run's log once, before the normal launch reset.
+        // Useful for the already-occurring 12.1 failure; never overwrite it.
+        let previous = docs.appendingPathComponent("lara-before-island-diag.log")
+        if FileManager.default.fileExists(atPath: url.path),
+           !FileManager.default.fileExists(atPath: previous.path) {
+            try? FileManager.default.copyItem(at: url, to: previous)
+        }
         
         if FileManager.default.fileExists(atPath: url.path) {
             try? FileManager.default.removeItem(at: url)
