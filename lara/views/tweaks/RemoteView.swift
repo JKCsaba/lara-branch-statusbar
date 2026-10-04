@@ -13,12 +13,7 @@ struct RemoteView: View {
     @ObservedObject var mgr: laramgr
     @State private var statusBarTimeFormat: String = "HH:mm"
     @State private var running: Bool = false
-    @State private var islandOffsetPoints: Int = 780
-    @State private var islandDiagnosticStatus: String = "Ready. Capture upright, upside down, then expanded music."
-    @State private var islandDiagnosticExpired: Bool = false
-    @State private var islandDiagnosticTask: UIBackgroundTaskIdentifier = .invalid
-    @State private var islandObservedText: String = "not checked"
-    @State private var islandObservedExpansion: String = "not checked"
+    @State private var islandOffsetPoints: Int = min(900, max(0, Int(UIScreen.main.bounds.height) - 104))
     @State private var columns: Int = 5
     @State private var performanceHUD: Int = -1
     @AppStorage("rcdockunlimited") private var rcdockunlimited: Bool = false
@@ -175,59 +170,26 @@ struct RemoteView: View {
             }
 
             Section {
-                Button("Capture current state") {
-                    captureIslandDiagnostic("current-state")
-                }
-                .disabled(!mgr.rcready || running)
-                Text(islandDiagnosticStatus)
-                    .font(.footnote)
-                Picker("Upside-down Island text", selection: $islandObservedText) {
-                    Text("Not checked").tag("not checked")
-                    Text("Correct way up").tag("correct way up")
-                    Text("Inverted").tag("inverted")
-                }
-                Picker("Expanded music grows", selection: $islandObservedExpansion) {
-                    Text("Not checked").tag("not checked")
-                    Text("Into the screen").tag("into the screen")
-                    Text("Off the edge / clipped").tag("off the edge / clipped")
-                }
-                Button("Save what I saw") {
-                    if appendIslandDiagnostic("OBSERVED at \(Date()): upside-down text=\(islandObservedText); expansion=\(islandObservedExpansion)") {
-                        islandDiagnosticStatus = "Observation saved to the report."
-                    }
-                }
-                .disabled(running)
-                ShareLink(item: islandDiagnosticURL) {
-                    Text("Share Island Diagnostics Report")
-                }
-                .disabled(!FileManager.default.fileExists(atPath: islandDiagnosticURL.path))
-            } header: {
-                Text("Island Diagnostics — v12.3")
-            } footer: {
-                Text("Capture runs immediately while Lara is open. Do not leave Lara during capture. It does not move or rotate the Island.")
-            }
-
-            Section {
                 Stepper(value: $islandOffsetPoints, in: -900...900, step: 10) {
                     Text("Island offset: \(islandOffsetPoints) pt")
                 }
                 Button {
-                    run("Move Dynamic Island — v12.0") {
-                        let result = move_dynamic_island_window(mgr.sbProc, Double(islandOffsetPoints))
+                    run("Freeze + Mirror Dynamic Island — v12.4") {
+                        let result = freeze_and_place_dynamic_island(mgr.sbProc, Double(islandOffsetPoints))
                         switch result {
-                        case 0: return "Island position accepted. Check the Island on Home Screen."
+                        case 0: return "Island autorotation frozen and mirrored at the selected offset."
                         case -2: return "Island window unavailable; nothing changed."
-                        case -7: return "Island position was not accepted or was reset by layout."
-                        default: return "Island position failed (\(result))."
+                        case -3: return "Island window does not expose the autorotation control."
+                        default: return "Island freeze/mirror failed (\(result))."
                         }
                     }
                 } label: {
-                    Text("Move Dynamic Island")
+                    Text("Freeze + Mirror Dynamic Island")
                 }
                 Button {
-                    run("Restore Dynamic Island — v12.0") {
-                        let result = restore_dynamic_island_window(mgr.sbProc)
-                        return result == 0 ? "Original Island position accepted."
+                    run("Restore Dynamic Island — v12.4") {
+                        let result = restore_frozen_dynamic_island(mgr.sbProc)
+                        return result == 0 ? "Original Island autorotation, rotation and position restored."
                             : result == -4 ? "No original Island position saved in this session."
                             : "Island restore failed (\(result))."
                     }
@@ -235,9 +197,9 @@ struct RemoteView: View {
                     Text("Restore Dynamic Island")
                 }
             } header: {
-                Text("Dynamic Island — v12.0 (Manual)")
+                Text("Dynamic Island — v12.4 (Window Freeze)")
             } footer: {
-                Text("Use upside down with a timer or music active. Positive offsets move toward the charging port. Position may reset during layout or respring.")
+                Text("Enable upside-down first, then use the freeze/mirror button once. 780 is the working offset. Respring restores the window if needed.")
             }
             .disabled(!mgr.rcready || running)
 
@@ -620,48 +582,6 @@ struct RemoteView: View {
                 stopfreakydog(proc)
             }
         }
-    }
-
-    private var islandDiagnosticURL: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("island-diagnostics-v12.3.txt")
-    }
-
-    private func appendIslandDiagnostic(_ text: String) -> Bool {
-        let url = islandDiagnosticURL
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: url.path) {
-            guard fm.createFile(atPath: url.path, contents: nil,
-                attributes: [.protectionKey: FileProtectionType.none]) else { return false }
-        }
-        do {
-            let handle = try FileHandle(forWritingTo: url)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data((text + "\n").utf8))
-            try handle.synchronize()
-            return true
-        } catch {
-            islandDiagnosticStatus = "Could not save the report: \(error.localizedDescription)"
-            return false
-        }
-    }
-
-    private func captureIslandDiagnostic(_ phase: String) {
-        guard mgr.rcready, !running, let proc = mgr.sbProc else { return }
-        running = true
-        islandDiagnosticStatus = "Capturing current Island state; keep Lara open..."
-        let result = phase.withCString { label in
-            islandDiagnosticURL.path.withCString { path in
-                capture_dynamic_island_diagnostics(proc, label, path)
-            }
-        }
-        running = false
-        let message = result == 0 ? "State captured. Repeat in the next orientation, then share the report."
-            : "Capture stopped (\(result)); share the report if checkpoints were written."
-        islandDiagnosticStatus = message
-        _ = appendIslandDiagnostic("LARA RESULT \(phase): \(result) at \(Date())")
-        mgr.logmsg("(rc) Island Diagnostics v12.3: \(message)")
     }
 
     private func run(_ name: String, _ work: @escaping () -> String, onComplete: ((String) -> Void)? = nil) {
