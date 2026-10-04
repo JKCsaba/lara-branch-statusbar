@@ -1,0 +1,196 @@
+--- a/lara/kexploit/pe/rc.h
++++ b/lara/kexploit/pe/rc.h
+@@ -22,6 +22,8 @@
+ int restore_manual_status_and_dock(RemoteCall *proc);
+ int add_notch_gradient(RemoteCall *proc);
+ int remove_notch_gradient(RemoteCall *proc);
++int lift_home_search_control(RemoteCall *proc, double liftPoints);
++int restore_home_search_control(RemoteCall *proc);
+ int enable_floating_dock(RemoteCall *proc);
+ int enable_grid_app_switcher(RemoteCall *proc);
+ int enable_debug_overlay(RemoteCall *proc);
+--- a/lara/kexploit/pe/rc.m
++++ b/lara/kexploit/pe/rc.m
+@@ -1779,3 +1779,138 @@
+     if (!lockResult) lockResult = movingResult;
+     return homeResult ? homeResult : lockResult;
+ }
++
++// BEGIN v11.8 SEARCH CONTROL ONLY
++// Resolve the named Home page/Search control and verify that it contains the
++// actual runtime Search pill. No diagnostic traversal, NSInvocationOperation,
++// recursiveDescription, layer transform, or modification of 11.3 code.
++static uint64_t rc_search118_find(RemoteCall *proc, uint64_t view,
++                                  uint64_t wantedClass, int depth, int *budget) {
++    if (!view || !wantedClass || depth > 8 || *budget <= 0) return 0;
++    --*budget;
++    if (remote_msg(proc, view, remote_sel(proc, "isKindOfClass:"), wantedClass, 0, 0, 0)) return view;
++    uint64_t children = remote_msg(proc, view, remote_sel(proc, "subviews"), 0, 0, 0, 0);
++    uint64_t count = children ? remote_msg(proc, children, remote_sel(proc, "count"), 0, 0, 0, 0) : 0;
++    for (uint64_t i = 0; i < count && *budget > 0; i++) {
++        uint64_t child = remote_msg(proc, children, remote_sel(proc, "objectAtIndex:"), i, 0, 0, 0);
++        uint64_t found = rc_search118_find(proc, child, wantedClass, depth + 1, budget);
++        if (found) return found;
++    }
++    return 0;
++}
++
++static uint64_t rc_search118_control(RemoteCall *proc) {
++    uint64_t pageClass = remote_getClass(proc, "SBIconListPageControl");
++    uint64_t pillClass = remote_getClass(proc, "SBHSearchPillView");
++    if (!pageClass || !pillClass) return 0;
++    // Existing 11.3 access path. pageControl is checked before calling it.
++    uint64_t controllerClass = remote_getClass(proc, "SBIconController");
++    uint64_t controller = controllerClass ? remote_msg(proc, controllerClass,
++        remote_sel(proc, "sharedInstance"), 0, 0, 0, 0) : 0;
++    uint64_t manager = controller ? remote_msg(proc, controller,
++        remote_sel(proc, "iconManager"), 0, 0, 0, 0) : 0;
++    uint64_t folderSelector = remote_sel(proc, "rootFolderController");
++    uint64_t responds = remote_sel(proc, "respondsToSelector:");
++    uint64_t folder = manager && remote_msg(proc, manager, responds, folderSelector, 0, 0, 0)
++        ? remote_msg(proc, manager, folderSelector, 0, 0, 0, 0) : 0;
++    uint64_t pageSelector = remote_sel(proc, "pageControl");
++    uint64_t page = folder && remote_msg(proc, folder, responds, pageSelector, 0, 0, 0)
++        ? remote_msg(proc, folder, pageSelector, 0, 0, 0, 0) : 0;
++    int budget = 96;
++    if (page && remote_msg(proc, page, remote_sel(proc, "isKindOfClass:"), pageClass, 0, 0, 0)
++        && rc_search118_find(proc, page, pillClass, 0, &budget)) return page;
++
++    // If that getter is unavailable, use the named root view on the stock Dock's
++    // ancestor chain, rather than arbitrary superview indexes or other windows.
++    uint64_t rootClass = remote_getClass(proc, "SBRootFolderView");
++    uint64_t dock = 0, layer = 0;
++    if (!rootClass || rc_v61_resolve_stock_dock_layer(proc, &dock, &layer)) return 0;
++    uint64_t root = dock;
++    for (int i = 0; root && i < 12; i++) {
++        if (remote_msg(proc, root, remote_sel(proc, "isKindOfClass:"), rootClass, 0, 0, 0)) break;
++        root = remote_msg(proc, root, remote_sel(proc, "superview"), 0, 0, 0, 0);
++    }
++    if (!root || !remote_msg(proc, root, remote_sel(proc, "isKindOfClass:"), rootClass, 0, 0, 0)) return 0;
++    page = remote_msg(proc, root, responds, pageSelector, 0, 0, 0)
++        ? remote_msg(proc, root, pageSelector, 0, 0, 0, 0) : 0;
++    budget = 96;
++    if (!page) page = rc_search118_find(proc, root, pageClass, 0, &budget);
++    if (!page || !remote_msg(proc, page, remote_sel(proc, "isKindOfClass:"), pageClass, 0, 0, 0)) return 0;
++    budget = 96;
++    return rc_search118_find(proc, page, pillClass, 0, &budget) ? page : 0;
++}
++
++static int rc_search118_apply(RemoteCall *proc, double lift, BOOL restore) {
++    if (!proc || lift < 0 || lift > 140) return -1;
++    printf("(rc) v11.8 search: resolve complete Home Search/page control\n");
++    fflush(stdout);
++    uint64_t control = rc_search118_control(proc);
++    if (!control) {
++        printf("(rc) v11.8 search: no validated SBIconListPageControl containing SBHSearchPillView; unchanged\n");
++        return -2;
++    }
++    uint64_t key = remote_sel(proc, "lara_search118_original_view_transform");
++    uint64_t original = RemoteArbCall(proc, objc_getAssociatedObject, control, key);
++    if (restore && !original) return 0;
++    if (!original) {
++        // UIView.transform is a public KVC-compliant struct property. Foundation
++        // boxes it as NSValue; do not call a guessed private transform getter.
++        uint64_t property = remote_NSString(proc, "transform");
++        original = property ? remote_msg(proc, control, remote_sel(proc, "valueForKey:"), property, 0, 0, 0) : 0;
++        uint64_t valueClass = remote_getClass(proc, "NSValue");
++        if (!original || !valueClass || !remote_msg(proc, original,
++            remote_sel(proc, "isKindOfClass:"), valueClass, 0, 0, 0)) return -3;
++        RemoteArbCall(proc, objc_setAssociatedObject, control, key, original, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
++    }
++    uint64_t type = remote_msg(proc, original, remote_sel(proc, "objCType"), 0, 0, 0, 0);
++    // Validate the boxed bytes against the local public ABI before reading.
++    NSString *encoding = type ? proc[type].string : nil;
++    if (!encoding || strcmp(encoding.UTF8String, @encode(CGAffineTransform)) != 0) return -4;
++    uint64_t slot = RemoteArbCall(proc, malloc, sizeof(CGAffineTransform));
++    if (!slot) return -5;
++    CGAffineTransform transform = CGAffineTransformIdentity;
++    remote_msg(proc, original, remote_sel(proc, "getValue:size:"), slot, sizeof(transform), 0, 0);
++    BOOL read = [proc remoteRead:slot to:&transform size:sizeof(transform)];
++    RemoteArbCall(proc, free, slot);
++    if (!read) return -6;
++    if (!restore) transform.ty -= lift;
++
++    // Same fire-and-forget retained NSInvocation scheduling used by working
++    // 11.3 gradient setters. This setter is UIView.setTransform:, so UIKit's
++    // view geometry/hit testing moves with the container and its descendants.
++    uint64_t selector = remote_sel(proc, "setTransform:");
++    uint64_t signature = remote_msg(proc, control,
++        remote_sel(proc, "methodSignatureForSelector:"), selector, 0, 0, 0);
++    uint64_t cls = remote_getClass(proc, "NSInvocation");
++    uint64_t invocation = signature && cls ? remote_msg(proc, cls,
++        remote_sel(proc, "invocationWithMethodSignature:"), signature, 0, 0, 0) : 0;
++    if (!invocation) return -7;
++    remote_msg(proc, invocation, remote_sel(proc, "setTarget:"), control, 0, 0, 0);
++    remote_msg(proc, invocation, remote_sel(proc, "setSelector:"), selector, 0, 0, 0);
++    slot = RemoteArbCall(proc, malloc, sizeof(transform));
++    if (!slot) return -8;
++    if (![proc remote_write:slot from:&transform size:sizeof(transform)]) {
++        RemoteArbCall(proc, free, slot);
++        return -9;
++    }
++    remote_msg(proc, invocation, remote_sel(proc, "setArgument:atIndex:"), slot, 2, 0, 0);
++    RemoteArbCall(proc, free, slot);
++    remote_msg(proc, invocation, remote_sel(proc, "retainArguments"), 0, 0, 0, 0);
++    remote_msg(proc, invocation, remote_sel(proc, "retain"), 0, 0, 0, 0);
++    remote_msg(proc, invocation,
++        remote_sel(proc, "performSelectorOnMainThread:withObject:waitUntilDone:"),
++        remote_sel(proc, "invoke"), 0, 0, 0);
++    printf("(rc) v11.8 search: UIView transform queued on validated complete control 0x%llx; lift=%.0fpt restore=%d\n",
++        (unsigned long long)control, restore ? 0 : lift, restore);
++    fflush(stdout);
++    return 0;
++}
++
++int lift_home_search_control(RemoteCall *proc, double liftPoints) {
++    return rc_search118_apply(proc, liftPoints, NO);
++}
++
++int restore_home_search_control(RemoteCall *proc) {
++    return rc_search118_apply(proc, 0, YES);
++}
++// END v11.8 SEARCH CONTROL ONLY
+--- a/lara/views/tweaks/RemoteView.swift
++++ b/lara/views/tweaks/RemoteView.swift
+@@ -12,6 +12,7 @@
+     @ObservedObject var mgr: laramgr
+     @State private var statusBarTimeFormat: String = "HH:mm"
+     @State private var running: Bool = false
++    @State private var searchLiftPoints: Int = 60
+     @State private var columns: Int = 5
+     @State private var performanceHUD: Int = -1
+     @AppStorage("rcdockunlimited") private var rcdockunlimited: Bool = false
+@@ -166,6 +167,33 @@
+                     Text("Remove Gradient")
+                 }
+             }
++
++            Section {
++                Stepper(value: $searchLiftPoints, in: 0...140, step: 5) {
++                    Text("Search lift: \(searchLiftPoints) pt")
++                }
++                Button {
++                    run("Lift Home Search Pill — v11.8") {
++                        let result = lift_home_search_control(mgr.sbProc, Double(searchLiftPoints))
++                        return result == 0
++                            ? "Search control move queued."
++                            : "Search move stopped (\(result)); no move queued."
++                    }
++                } label: {
++                    Text("Lift Home Search Pill")
++                }
++                Button {
++                    run("Restore Home Search Pill — v11.8") {
++                        let result = restore_home_search_control(mgr.sbProc)
++                        return "restore_home_search_control() -> \(result)"
++                    }
++                } label: {
++                    Text("Restore Home Search Pill")
++                }
++            } header: {
++                Text("Home Search — v11.8")
++            }
++            .disabled(!mgr.rcready || running)
+ 
+             Section {
+                 Button {
