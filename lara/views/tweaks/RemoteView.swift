@@ -174,22 +174,21 @@ struct RemoteView: View {
                     Text("Island offset: \(islandOffsetPoints) pt")
                 }
                 Button {
-                    run("Mirror Island Content — v12.5") {
-                        let result = mirror_dynamic_island_content(mgr.sbProc, Double(islandOffsetPoints))
+                    run("Mirror Dynamic Island — v11.4 style") {
+                        let result = mirror_dynamic_island_window(mgr.sbProc, Double(islandOffsetPoints))
                         switch result {
-                        case 0: return "Island content mirrored and moved to the selected offset."
+                        case 0: return "Island moved and visually mirrored."
                         case -2: return "Island window unavailable; nothing changed."
-                        case -3: return "Island root content view is unavailable; nothing changed."
-                        default: return "Island content mirror failed (\(result))."
+                        default: return "Island mirror failed (\(result))."
                         }
                     }
                 } label: {
-                    Text("Mirror Island Content")
+                    Text("Mirror Dynamic Island")
                 }
                 Button {
-                    run("Restore Dynamic Island — v12.5") {
-                        let result = restore_mirrored_dynamic_island(mgr.sbProc)
-                        return result == 0 ? "Original Island content and position restored."
+                    run("Restore Dynamic Island — v11.4 style") {
+                        let result = restore_mirrored_dynamic_island_window(mgr.sbProc)
+                        return result == 0 ? "Original Island position and visual rotation restored."
                             : result == -4 ? "No original Island position saved in this session."
                             : "Island restore failed (\(result))."
                     }
@@ -197,9 +196,9 @@ struct RemoteView: View {
                     Text("Restore Dynamic Island")
                 }
             } header: {
-                Text("Dynamic Island — v12.5 (Content Mirror)")
+                Text("Dynamic Island — v11.4 style (Window Mirror)")
             } footer: {
-                Text("Enable upside-down first, leave 780 selected, then tap Mirror Island Content once. This mirrors the loaded content view and leaves the window autorotation path untouched.")
+                Text("Enable upside-down first, leave 780 selected, then tap Mirror Dynamic Island. This mirrors the window without preventing SpringBoard autorotation.")
             }
             .disabled(!mgr.rcready || running)
 
