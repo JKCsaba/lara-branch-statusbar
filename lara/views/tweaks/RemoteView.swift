@@ -170,26 +170,64 @@ struct RemoteView: View {
             }
 
             Section {
+                Button {
+                    run("Lock Island in Portrait — v12.8") {
+                        let result = lock_dynamic_island_portrait(mgr.sbProc)
+                        switch result {
+                        case 0: return "Island orientation lock installed. Turn upside down and check expansion."
+                        case 1: return "Island orientation lock is already installed."
+                        case -2: return "Island window unavailable. Start a timer or music and try again."
+                        case -21: return "This iOS build's Island orientation handler is unsupported."
+                        case -22: return "This iOS build's orientation lock is unsupported."
+                        case -23: return "Hold the phone normally upright, let the Island settle, then try again."
+                        case -24: return "Another Island orientation change was detected. Restart SpringBoard before retrying."
+                        default: return "Island orientation lock could not be verified (\(result)). Restart SpringBoard before retrying."
+                        }
+                    }
+                } label: {
+                    Text("Lock Island in Portrait")
+                }
+                Button {
+                    run("Restore Island Rotation — v12.8") {
+                        let result = restore_dynamic_island_rotation(mgr.sbProc)
+                        switch result {
+                        case 0: return "Island rotation restored. Rotate the phone once to refresh."
+                        case 1: return "No active v12.8 orientation lock."
+                        case -24: return "Another Island orientation change was detected. Restart SpringBoard to reset."
+                        default: return "Island rotation restore could not be verified (\(result)). Restart SpringBoard to reset."
+                        }
+                    }
+                } label: {
+                    Text("Restore Island Rotation")
+                }
+            } header: {
+                Text("Island Portrait Lock — v12.8 (Experimental)")
+            } footer: {
+                Text("Hold normally upright with a timer or music active. Let the Island settle, tap Lock, then turn upside down and use Move below. Landscape rotation is also held. Restore and rotate once to undo; a respring also clears the lock.")
+            }
+            .disabled(!mgr.rcready || running)
+
+            Section {
                 Stepper(value: $islandOffsetPoints, in: -900...900, step: 10) {
                     Text("Island offset: \(islandOffsetPoints) pt")
                 }
                 Button {
-                    run("Mirror Dynamic Island — v11.4 style") {
-                        let result = mirror_dynamic_island_window(mgr.sbProc, Double(islandOffsetPoints))
+                    run("Move Dynamic Island — v12.0") {
+                        let result = move_dynamic_island_window(mgr.sbProc, Double(islandOffsetPoints))
                         switch result {
-                        case 0: return "Island content moved and visually mirrored."
+                        case 0: return "Island position accepted. Check the Island on Home Screen."
                         case -2: return "Island window unavailable; nothing changed."
-                        case -3: return "Island content view unavailable; nothing changed."
-                        default: return "Island content mirror failed (\(result))."
+                        case -7: return "Island position was not accepted or was reset by layout."
+                        default: return "Island position failed (\(result))."
                         }
                     }
                 } label: {
-                    Text("Mirror Dynamic Island")
+                    Text("Move Dynamic Island")
                 }
                 Button {
-                    run("Restore Dynamic Island — v11.4 style") {
-                        let result = restore_mirrored_dynamic_island_window(mgr.sbProc)
-                        return result == 0 ? "Original Island position and visual rotation restored."
+                    run("Restore Dynamic Island — v12.0") {
+                        let result = restore_dynamic_island_window(mgr.sbProc)
+                        return result == 0 ? "Original Island position accepted."
                             : result == -4 ? "No original Island position saved in this session."
                             : "Island restore failed (\(result))."
                     }
@@ -197,9 +235,9 @@ struct RemoteView: View {
                     Text("Restore Dynamic Island")
                 }
             } header: {
-                Text("Dynamic Island — v12.6 (Content Mirror)")
+                Text("Dynamic Island — v12.0 (Manual)")
             } footer: {
-                Text("Enable upside-down first, leave 780 selected, then tap Mirror Dynamic Island. Only the Island content is mirrored; the outer window is left to SpringBoard.")
+                Text("Use upside down with a timer or music active. Positive offsets move toward the charging port. Position may reset during layout or respring.")
             }
             .disabled(!mgr.rcready || running)
 
