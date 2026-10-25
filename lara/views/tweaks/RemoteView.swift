@@ -171,41 +171,45 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("Try Island Portrait Query — v12.10 No-Poll") {
-                        let result = lock_dynamic_island_portrait(mgr.sbProc)
-                        switch result {
-                        case 0: return "Portrait query hook installed, not behavior-verified. Rotate upside down and test."
-                        case 1: return "Portrait query hook is already installed."
-                        case -21:
-                            let detail = mgr.sbProc?.lastError ?? "No compatible Island method found"
-                            return "Island query stopped before a hook was installed: \(detail)"
-                        case -22: return "A safe return-portrait implementation was not found. Nothing changed."
-                        case -24: return "Unexpected method ownership. No hook installed; respring before retrying."
-                        default:
-                            let detail = mgr.sbProc?.lastError ?? "No additional diagnostic available"
-                            return "Island query stopped (\(result)): \(detail). Do not retry this operation."
+                    run("Inspect Island Element Orientation — Read Only") {
+                        let value = inspect_dynamic_island_element_orientation(mgr.sbProc)
+                        switch value {
+                        case 1: return "Island currently stores portrait (1). No changes made."
+                        case 2: return "Island currently stores upside-down portrait (2). No changes made."
+                        default: return "Preflight refused (\(value)). No changes made; inspect log."
                         }
                     }
                 } label: {
-                    Text("Lock Island in Portrait")
+                    Text("Inspect Island Orientation (Safe)")
                 }
                 Button {
-                    run("Restore Island Query — v12.10 No-Poll") {
-                        let result = restore_dynamic_island_rotation(mgr.sbProc)
+                    run("One-Shot Island Portrait Geometry — Experimental") {
+                        let result = lock_dynamic_island_portrait(mgr.sbProc)
                         switch result {
-                        case 0: return "Original Island orientation query restored. Rotate once to refresh."
-                        case 1: return "No active v12.10 query override."
-                        case -24: return "Unexpected method ownership. Respring to reset."
-                        default: return "Island rotation restore could not be verified (\(result)). Restart SpringBoard to reset."
+                        case 0: return "Portrait update queued, NOT execution-verified. Check compact timer and expansion immediately."
+                        case 1: return "Island already reports portrait. No action queued."
+                        default: return "Portrait update refused (\(result)); no method hook installed. Check log."
                         }
                     }
                 } label: {
-                    Text("Restore Island Rotation")
+                    Text("Try Portrait Island Layout ONCE")
+                }
+                Button {
+                    run("Restore Island Element Orientation — One Shot") {
+                        let result = restore_dynamic_island_rotation(mgr.sbProc)
+                        switch result {
+                        case 0: return "Upside-down element orientation update queued; verify visually."
+                        case 1: return "Already upside-down; nothing queued."
+                        default: return "Restore unavailable (\(result)); respring to reset if needed."
+                        }
+                    }
+                } label: {
+                    Text("Restore Previous Island Orientation")
                 }
             } header: {
-                Text("Island Portrait Query — v12.10 No-Poll (Unverified)")
+                Text("Dynamic Island — Orientation Geometry v13.0 (Experimental)")
             } footer: {
-                Text("Hold upright, tap Lock once, then rotate upside down. Unlike the previous experimental build, this action does not perform any orientation polling or inspect the Island window. SpringBoard handles the portrait-returning method after installation without calling Lara. Behavior is unverified. Restore, or respring to reset.")
+                Text("First use read-only Inspect. With the phone upside down and a timer running, tap Try ONCE. This queues one existing SpringBoard controller update; it does not swizzle methods, persist changes, or auto-reapply. Nil transition coordinator is untested. If SpringBoard misbehaves, respring; the normal orientation policy will return. Do not use the previous v12.10 hook.")
             }
             .disabled(!mgr.rcready || running)
 
