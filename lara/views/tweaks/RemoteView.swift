@@ -182,7 +182,7 @@ struct RemoteView: View {
                         case -22: return "A safe return-portrait implementation was not found. Nothing changed."
                         case -24: return "Unexpected method ownership. No hook installed; respring before retrying."
                         default:
-                            let detail = mgr.sbProc.lastError ?? "No additional diagnostic available"
+                            let detail = mgr.sbProc?.lastError ?? "No additional diagnostic available"
                             return "Island query stopped (\(result)): \(detail). Do not retry this operation."
                         }
                     }
