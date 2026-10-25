@@ -214,6 +214,35 @@ struct RemoteView: View {
             .disabled(!mgr.rcready || running)
 
             Section {
+                Button {
+                    run("Rotate Dynamic Island Visuals 180 — v13.1") {
+                        let result = rotate_dynamic_island_visual_180(mgr.sbProc)
+                        switch result {
+                        case 0: return "Visual 180-degree rotation queued. Check timer digits, Island expansion and touch behavior."
+                        case -40: return "First press Try Portrait Island Layout ONCE (v13.0). Rotation not applied."
+                        default: return "Island visual rotation refused (\(result)). Check Lara log; don't retry blindly."
+                        }
+                    }
+                } label: {
+                    Text("Rotate Island Visuals 180°")
+                }
+                Button {
+                    run("Restore Dynamic Island Visuals — v13.1") {
+                        let result = restore_dynamic_island_visual_rotation(mgr.sbProc)
+                        return result == 0 ? "Original visual orientation queued."
+                            : "Visual restore refused (\(result)); respring if necessary."
+                    }
+                } label: {
+                    Text("Restore Island Visual Rotation")
+                }
+            } header: {
+                Text("Dynamic Island — Visual Rotation v13.1 (Experimental)")
+            } footer: {
+                Text("First activate the working v13.0 Portrait Island Layout. Then press Rotate Island Visuals 180°. Only visual container-layer transforms change; window positioning and layout policy are untouched. Experimental: confirm touch behavior and expanded animations. Use Restore or respring if incorrect.")
+            }
+            .disabled(!mgr.rcready || running)
+
+            Section {
                 Stepper(value: $islandOffsetPoints, in: -900...900, step: 10) {
                     Text("Island offset: \(islandOffsetPoints) pt")
                 }
