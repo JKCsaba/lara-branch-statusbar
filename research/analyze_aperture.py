@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage 3: read-only System Aperture GEOMETRY evidence, exact iOS 18.4 22E240.
+"""Stage 4: read-only System Aperture CONTAINER/LAYOUT evidence, iOS 18.4 22E240.
 
 Existing GH workflow calls: --dsc PATH --out DIRECTORY --disass-limit N
 This script never attaches to a device, injects into SpringBoard, or patches code.
@@ -16,26 +16,28 @@ IMAGE = '/System/Library/PrivateFrameworks/SpringBoard.framework/SpringBoard'
 # Addresses independently recovered from exact SpringBoard.class-dump --method addresses
 # in first iOS 18.4 (22E240) evidence artifact. Don't apply to another build.
 TARGETS = [
-    ('default_island_frame', 'SBSystemApertureController defaultIslandFrameInCoordinateSpace:', 0x1d8ba9bc0, 180),
-    ('container_center_get', 'SBSystemApertureViewController containerParentCenter', 0x1d8335958, 75),
-    ('container_center_set', 'SBSystemApertureViewController setContainerParentCenter:', 0x1d87ce564, 145),
-    ('layout_subviews', 'SBSystemApertureViewController viewWillLayoutSubviews', 0x1d87cf2a0, 185),
-    ('max_container_outsets', 'SBSystemApertureViewController _maximumContainerViewOutsetsInBounds:inLayoutMode:', 0x1d87cfca4, 185),
-    ('custom_layout_y', 'SBSystemApertureViewController _yOffsetForCustomLayout:', 0x1d87d56b0, 145),
-    ('content_size_outsets', 'SBSystemApertureViewController edgeOutsetsForSize:', 0x1d87d1448, 160),
-    ('adjunct_layout_bounds', 'SBSystemApertureViewController _boundsForAdjunctContainerViewWithPreferredEdgeOutsets:layoutDirection:', 0x1d87cfef0, 160),
-    ('container_frame_changed', 'SBSystemApertureViewController systemApertureContainerView:didChangeFrame:', 0x1d87d2988, 110),
-    ('container_center_changed', 'SBSystemApertureViewController systemApertureContainerView:didChangeCenter:', 0x1d83e09a4, 100),
-    ('sensor_region_frame', 'SBSystemApertureViewController _frameForSensorRegionInBounds:', 0x1d83df698, 120),
-    ('container_parent_updates', 'SBSystemApertureViewController _handleContainerParentUpdatesFromPreferences:context:', 0x1d834a9c4, 160),
-    ('container_and_element_updates', 'SBSystemApertureViewController _handleContainerAndElementUpdatesFromPreferences:orderedElementViewControllers:context:', 0x1d834b0a4, 140),
+    # Exact method implementation addresses from the 22E240 class dumps.
+    # Targets are SpringBoard's container geometry and expanded-layout policy,
+    # NOT the visual rotation transform. All operations are read-only.
+    ('container_layout', 'SBSystemApertureContainerView layoutSubviews', 0x1d83deb88, 280),
+    ('container_set_frame', 'SBSystemApertureContainerView setFrame:', 0x1d84044dc, 170),
+    ('container_set_bounds', 'SBSystemApertureContainerView setBounds:', 0x1d83e0708, 150),
+    ('container_set_center', 'SBSystemApertureContainerView setCenter:', 0x1d83e07d8, 150),
+    ('container_clipping', 'SBSystemApertureContainerView setContentClippingEnabled:', 0x1d834d714, 150),
+    ('container_hit_testing', 'SBSystemApertureContainerView _layoutHitTestViewWithBounds:', 0x1d83df080, 165),
+    ('container_content_transform', 'SBSystemApertureContainerView _setContentViewTransform:elementViewControllerInterfaceOrientation:', 0x1d83b35f0, 175),
+    ('container_transform_update', 'SBSystemApertureContainerView _updateContentViewTransformImmediately', 0x1d83b34cc, 140),
+    ('controller_min_size_by_orientation', 'SBSystemApertureViewController _preferredMinSizeForCustomLayout:elementInterfaceOrientation:', 0x1d87d5530, 185),
+    ('controller_preferred_outsets', 'SBSystemApertureViewController preferredEdgeOutsetsForLayoutMode:suggestedOutsets:maximumOutsets:forTargetWithOverrider:isDefaultValue:', 0x1d87d0ca4, 260),
+    ('controller_set_layout_mode', 'SBSystemApertureViewController setLayoutMode:reason:forTargetWithOverrider:', 0x1d87d07cc, 180),
+    ('controller_host_outsets', 'SBSystemApertureViewController _hostSuggestedOutsetsForElement:', 0x1d87d122c, 180),
+    ('controller_layout_overrider', 'SBSystemApertureViewController _layoutSpecifyingOverriderForContainerView:', 0x1d87cf6b0, 145),
+    ('controller_statusbar_avoidance', 'SBSystemApertureViewController _updateStatusBarAvoidanceFrameWithAnimationSettings:', 0x1d87d4c64, 160),
 ]
 
 CLASSES = [
     'SBSystemApertureContainerView',
-    'SBSystemApertureWindowScene',
-    'SBSystemApertureContainerViewGeometryObserver',
-    'SBSystemApertureContainerViewDelegate',
+    'SBSystemApertureViewController',
 ]
 
 
@@ -83,14 +85,16 @@ def main():
     (ns.out/'geometry_manifest.json').write_text(json.dumps({'firmware':'iOS 18.4 22E240 / iPhone13,2',
         'image':IMAGE,'items':items},indent=2),encoding='utf-8')
     good=sum(x['exit_code']==0 for x in items)
-    lines=['iOS 18.4 System Aperture geometry extraction (read-only)',
+    lines=['iOS 18.4 System Aperture Stage 4 container and layout extraction (read-only)',
            f'Successful commands: {good}/{len(items)}',
            'EXTRACTION SUCCEEDED DOES NOT MEAN THE EXPANSION ROOT CAUSE IS CONFIRMED.',
            *[f"  {r['label']}: exit={r['exit_code']} ({r['elapsed_seconds']}s) {r['file']}" for r in items]]
     summary='\n'.join(lines)+'\n'
     (ns.out/'SUMMARY.txt').write_text(summary,encoding='utf-8')
-    (ns.out/'SUMMARY_STAGE3.txt').write_text(summary,encoding='utf-8')
+    (ns.out/'SUMMARY_STAGE4.txt').write_text(summary,encoding='utf-8')
     print(summary,flush=True)
+    if good != len(items):
+        raise SystemExit(f'Stage 4 evidence incomplete: {good}/{len(items)} commands succeeded; inspect logs and artifact')
 
 if __name__ == '__main__':
     main()
