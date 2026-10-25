@@ -14,6 +14,8 @@ struct RemoteView: View {
     @State private var statusBarTimeFormat: String = "HH:mm"
     @State private var running: Bool = false
     @State private var islandOffsetPoints: Int = min(900, max(0, Int(UIScreen.main.bounds.height) - 104))
+    @State private var islandReportURL: URL?
+    @State private var islandDiagnosticStatus: String = ""
     @State private var columns: Int = 5
     @State private var performanceHUD: Int = -1
     @AppStorage("rcdockunlimited") private var rcdockunlimited: Bool = false
@@ -169,43 +171,7 @@ struct RemoteView: View {
                 }
             }
 
-            Section {
-                Button {
-                    run("Lock Island in Portrait — v12.8") {
-                        let result = lock_dynamic_island_portrait(mgr.sbProc)
-                        switch result {
-                        case 0: return "Island orientation lock installed. Turn upside down and check expansion."
-                        case 1: return "Island orientation lock is already installed."
-                        case -2: return "Island window unavailable. Start a timer or music and try again."
-                        case -21: return "This iOS build's Island orientation handler is unsupported."
-                        case -22: return "This iOS build's orientation lock is unsupported."
-                        case -23: return "Hold the phone normally upright, let the Island settle, then try again."
-                        case -24: return "Another Island orientation change was detected. Restart SpringBoard before retrying."
-                        default: return "Island orientation lock could not be verified (\(result)). Restart SpringBoard before retrying."
-                        }
-                    }
-                } label: {
-                    Text("Lock Island in Portrait")
-                }
-                Button {
-                    run("Restore Island Rotation — v12.8") {
-                        let result = restore_dynamic_island_rotation(mgr.sbProc)
-                        switch result {
-                        case 0: return "Island rotation restored. Rotate the phone once to refresh."
-                        case 1: return "No active v12.8 orientation lock."
-                        case -24: return "Another Island orientation change was detected. Restart SpringBoard to reset."
-                        default: return "Island rotation restore could not be verified (\(result)). Restart SpringBoard to reset."
-                        }
-                    }
-                } label: {
-                    Text("Restore Island Rotation")
-                }
-            } header: {
-                Text("Island Portrait Lock — v12.8 (Experimental)")
-            } footer: {
-                Text("Hold normally upright with a timer or music active. Let the Island settle, tap Lock, then turn upside down and use Move below. Landscape rotation is also held. Restore and rotate once to undo; a respring also clears the lock.")
-            }
-            .disabled(!mgr.rcready || running)
+            islandDiagnosticsSection
 
             Section {
                 Stepper(value: $islandOffsetPoints, in: -900...900, step: 10) {
@@ -620,6 +586,57 @@ struct RemoteView: View {
                 stopfreakydog(proc)
             }
         }
+    }
+
+    private var islandDiagnosticsSection: some View {
+        Section {
+            Button {
+                guard let documents = FileManager.default.urls(for: .documentDirectory,
+                    in: .userDomainMask).first else {
+                    islandDiagnosticStatus = "Could not locate the report folder."
+                    return
+                }
+                let report = documents.appendingPathComponent(
+                    "island-orientation-v12.9-\(Int(Date().timeIntervalSince1970)).txt")
+                islandReportURL = nil
+                islandDiagnosticStatus = "Inspecting Island methods…"
+                run("Inspect Island Orientation — v12.9") {
+                    let result = report.path.withCString {
+                        inspect_dynamic_island_orientation(mgr.sbProc, $0)
+                    }
+                    switch result {
+                    case 0: return "Inspection complete. Share the Island report; no rotation lock was installed."
+                    case 1: return "Inspection reached its limit. Share the partial Island report."
+                    case -1: return "SpringBoard RemoteCall was unavailable. Share the report and Lara log."
+                    case -3: return "Could not save the report completely. Share the Lara log."
+                    default: return "Inspection stopped after an error (\(result)). Share the partial report and Lara log."
+                    }
+                } onComplete: { message in
+                    islandDiagnosticStatus = message
+                    if FileManager.default.fileExists(atPath: report.path) {
+                        islandReportURL = report
+                    }
+                }
+            } label: {
+                Text("Inspect Island Orientation")
+            }
+            if !islandDiagnosticStatus.isEmpty {
+                Text(islandDiagnosticStatus)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+            if let report = islandReportURL {
+                ShareLink(item: report) {
+                    Label("Share Island Report", systemImage: "square.and.arrow.up")
+                }
+            }
+        } header: {
+            Text("Island Diagnostics — v12.9")
+        } footer: {
+            Text("Initialize SpringBoard, start music or a timer, then inspect once. Either portrait orientation is fine. This check does not move or lock the Island. A partial report is useful too.")
+        }
+        .disabled(!mgr.rcready || mgr.rcrunning || running)
     }
 
     private func run(_ name: String, _ work: @escaping () -> String, onComplete: ((String) -> Void)? = nil) {

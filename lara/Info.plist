@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>Lara Island 12.8</string>
+	<string>Lara Island 12.9 Debug</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
