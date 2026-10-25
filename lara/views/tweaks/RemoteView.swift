@@ -176,10 +176,14 @@ struct RemoteView: View {
                         switch result {
                         case 0: return "Portrait query hook installed, not behavior-verified. Rotate upside down and test."
                         case 1: return "Portrait query hook is already installed."
-                        case -21: return "No single compatible Island orientation-query method was found. Nothing changed."
+                        case -21:
+                            let detail = mgr.sbProc.lastError ?? "No compatible Island method found"
+                            return "Island query stopped before a hook was installed: \(detail)"
                         case -22: return "A safe return-portrait implementation was not found. Nothing changed."
                         case -24: return "Unexpected method ownership. No hook installed; respring before retrying."
-                        default: return "Island portrait query hook could not be verified (\(result)). Restart SpringBoard before retrying."
+                        default:
+                            let detail = mgr.sbProc.lastError ?? "No additional diagnostic available"
+                            return "Island query stopped (\(result)): \(detail). Do not retry this operation."
                         }
                     }
                 } label: {
