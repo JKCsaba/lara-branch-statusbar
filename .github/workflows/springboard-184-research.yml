@@ -18,7 +18,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install blacktop/tap/ipsw
+          brew install ipsw
           ipsw version || ipsw --version
           ipsw extract --help | grep -- '--remote'
 
