@@ -1,0 +1,62 @@
+name: iOS 18.4 SpringBoard research (offline)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-springboard:
+    runs-on: macos-15
+    timeout-minutes: 105
+    steps:
+      - name: Checkout analysis files
+        uses: actions/checkout@v4
+
+      - name: Install Apple firmware research tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install blacktop/tap/ipsw
+          ipsw version || ipsw --version
+          ipsw extract --help | grep -- '--remote'
+
+      - name: Extract only iPhone 12 iOS 18.4 arm64e cache from official Apple firmware
+        shell: bash
+        env:
+          APPLE_IPSW: https://updates.cdn-apple.com/2025SpringFCS/fullrestores/082-15147/92F711E1-9EE9-4B8E-84AE-5DE332AD9517/iPhone13,2,iPhone13,3_18.4_22E240_Restore.ipsw
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/springboard-dsc" "$GITHUB_WORKSPACE/springboard-research-output"
+          echo 'Device: iPhone13,2; build: 22E240; no phone connection or injection'
+          df -h . "$RUNNER_TEMP"
+          ipsw info "$APPLE_IPSW" --remote > "$GITHUB_WORKSPACE/springboard-research-output/firmware_info.txt" 2>&1 || true
+          # ios18.4 iPhone12: request just arm64e dyld cache, not a 9.17 GB entire IPSW.
+          # Fail rather than silently inspecting an unexpected build/cache.
+          ipsw extract "$APPLE_IPSW" --dyld --dyld-arch arm64e \
+            --remote --output "$RUNNER_TEMP/springboard-dsc" \
+            2>&1 | tee "$GITHUB_WORKSPACE/springboard-research-output/extract.log"
+          find "$RUNNER_TEMP/springboard-dsc" -name 'dyld_shared_cache_arm64e*' -type f \
+            -exec ls -lh {} \; > "$GITHUB_WORKSPACE/springboard-research-output/extracted_files.txt"
+          find "$RUNNER_TEMP/springboard-dsc" -name dyld_shared_cache_arm64e -type f | head -n 1 \
+            > "$RUNNER_TEMP/springboard-cache-path.txt"
+          test -s "$RUNNER_TEMP/springboard-cache-path.txt"
+
+      - name: Inspect System Aperture class/method implementations
+        shell: bash
+        run: |
+          set -euo pipefail
+          DSC="$(cat "$RUNNER_TEMP/springboard-cache-path.txt")"
+          python3 research/analyze_aperture.py --dsc "$DSC" \
+            --out "$GITHUB_WORKSPACE/springboard-research-output" --disass-limit 10
+          cat "$GITHUB_WORKSPACE/springboard-research-output/SUMMARY.txt"
+
+      - name: Upload research evidence (even on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: springboard-ios18.4-method-evidence
+          path: springboard-research-output/
+          if-no-files-found: warn
+          retention-days: 7
