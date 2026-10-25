@@ -49,7 +49,7 @@ jobs:
           set -euo pipefail
           DSC="$(cat "$RUNNER_TEMP/springboard-cache-path.txt")"
           python3 research/analyze_aperture.py --dsc "$DSC" \
-            --out "$GITHUB_WORKSPACE/springboard-research-output" --disass-limit 10
+            --out "$GITHUB_WORKSPACE/springboard-research-output" --disass-limit 14
           cat "$GITHUB_WORKSPACE/springboard-research-output/SUMMARY.txt"
 
       - name: Upload research evidence (even on failure)

@@ -78,6 +78,26 @@ def main():
         0 if 'orient' in m['signature'].lower() else 1,
         m['class_name'], m['signature']))
 
+    # Verified SpringBoard iOS 18.4 / 22E240 methods.
+    preferred = [
+        '0x1d83b36d0', # Rotation transform
+        '0x1d87d5ebc', # Host orientation change
+        '0x1d87d61a4', # Element orientation update
+        '0x1d83b3720', # Element orientation authority
+        '0x1d83df634', # Active element orientation
+        '0x1d8ba82cc', # Window autorotation
+        '0x1d88508a0', # Rotation context initialization
+        '0x1d885093c', # Affine transform
+        '0x1d8ba8cac', # Window scene orientation update
+        '0x1d87cfe30', # Portrait container frame
+        '0x1d87cae70', # Supported orientations
+        '0x1d87d5530', # Preferred minimum size
+        '0x1d87d56b0', # Custom layout Y offset
+        '0x1d8869914', # Orientation preferences
+    ]
+    report['methods'].sort(key=lambda m: (
+        preferred.index(m['vaddr']) if m['vaddr'] in preferred else 999,
+        m['class_name'], m['signature']))
     seen = set()
     for item in report['methods']:
         addr = item['vaddr'].lower()
@@ -85,8 +105,7 @@ def main():
             continue
         seen.add(addr)
         outfile = ns.out/f"disass_{len(seen):02d}_{addr}.txt"
-        cmd = ['ipsw', 'dyld', 'disass', str(ns.dsc), '--vaddr', addr,
-               '--image', IMAGE]
+        cmd = ['ipsw', 'dyld', 'disass', str(ns.dsc), '--vaddr', addr]
         rc, _ = execute(cmd, outfile, 600)
         report['disassembly'].append({**item, 'exit_code': rc, 'file': outfile.name})
 
