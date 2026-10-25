@@ -171,41 +171,42 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("Try Island Portrait Query — v12.10 No-Poll") {
+                    run("Install Island Zero-Rotation Transform — v12.11") {
                         let result = lock_dynamic_island_portrait(mgr.sbProc)
                         switch result {
-                        case 0: return "Portrait query hook installed, not behavior-verified. Rotate upside down and test."
-                        case 1: return "Portrait query hook is already installed."
-                        case -21:
-                            let detail = mgr.sbProc?.lastError ?? "No compatible Island method found"
-                            return "Island query stopped before a hook was installed: \(detail)"
-                        case -22: return "A safe return-portrait implementation was not found. Nothing changed."
-                        case -24: return "Unexpected method ownership. No hook installed; respring before retrying."
+                        case 0: return "Zero-angle transform redirect installed (behavior NOT verified). Test once; a respring will clear it."
+                        case 1: return "Zero-angle transform redirect already installed."
+                        case -1: return "RemoteCall session has an error. Do not retry until reinitialized."
+                        case -30: return "This experiment requires iOS 18.4 build 22E240. Nothing changed."
+                        case -31: return "Required class or method unavailable. Nothing changed."
+                        case -32: return "Methods do not match exact firmware evidence. Nothing changed."
                         default:
-                            let detail = mgr.sbProc?.lastError ?? "No additional diagnostic available"
-                            return "Island query stopped (\(result)): \(detail). Do not retry this operation."
+                            let detail = mgr.sbProc?.lastError ?? "No further details"
+                            return "Redirect could not be verified (\(result)): \(detail). Do not retry."
                         }
                     }
                 } label: {
-                    Text("Lock Island in Portrait")
+                    Text("Test Island Upright (Experimental)")
                 }
                 Button {
-                    run("Restore Island Query — v12.10 No-Poll") {
+                    run("Restore Island Transform — v12.11") {
                         let result = restore_dynamic_island_rotation(mgr.sbProc)
                         switch result {
-                        case 0: return "Original Island orientation query restored. Rotate once to refresh."
-                        case 1: return "No active v12.10 query override."
-                        case -24: return "Unexpected method ownership. Respring to reset."
-                        default: return "Island rotation restore could not be verified (\(result)). Restart SpringBoard to reset."
+                        case 0: return "Original rotation transform implementation restored."
+                        case 1: return "Original implementation already active."
+                        case -1: return "RemoteCall unavailable. A normal restart clears the experimental redirect."
+                        case -30: return "Unsupported firmware. Nothing changed."
+                        case -32: return "Unexpected method address. Nothing changed. Restart the device to reset."
+                        default: return "Restore could not be verified (\(result)). Restart the device to reset."
                         }
                     }
                 } label: {
-                    Text("Restore Island Rotation")
+                    Text("Restore Island Transform")
                 }
             } header: {
-                Text("Island Portrait Query — v12.10 No-Poll (Unverified)")
+                Text("Island Rotation — v12.11 (Experimental)")
             } footer: {
-                Text("Hold upright, tap Lock once, then rotate upside down. Unlike the previous experimental build, this action does not perform any orientation polling or inspect the Island window. SpringBoard handles the portrait-returning method after installation without calling Lara. Behavior is unverified. Restore, or respring to reset.")
+                Text("Exact iOS 18.4 (22E240) only. Redirects a class method to its existing zero-angle branch (all orientations, not just upside-down). This may respring or disrupt the expanded Island. No polling or code-page reads. A normal restart clears the change. Does not affect v12.0 window offset.")
             }
             .disabled(!mgr.rcready || running)
 
