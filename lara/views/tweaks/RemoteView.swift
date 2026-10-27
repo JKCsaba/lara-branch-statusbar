@@ -215,6 +215,51 @@ struct RemoteView: View {
 
             Section {
                 Button {
+                    run("Inspect Island Portrait Freeze — v13.2 Read Only") {
+                        let state = inspect_dynamic_island_portrait_freeze(mgr.sbProc)
+                        switch state {
+                        case 0: return "Island orientation updater is NORMAL (not frozen). No changes made."
+                        case 1: return "Island portrait FREEZE is installed in SpringBoard. Closing Lara alone does not restore it; a SpringBoard restart does."
+                        default: return "Freeze preflight failed (\(state)). No changes made; inspect the Lara log."
+                        }
+                    }
+                } label: {
+                    Text("Inspect Portrait Freeze Status (Safe)")
+                }
+                Button {
+                    run("Freeze Island Portrait — v13.2 Experimental") {
+                        let result = freeze_dynamic_island_portrait_v132(mgr.sbProc)
+                        switch result {
+                        case 0: return "Freeze installed, original method backed up in SpringBoard. Test timer/expansion/lock. Unfreeze immediately if Island behaves incorrectly."
+                        case 1: return "Already frozen in SpringBoard. No change."
+                        case -61: return "First run Try Portrait Island Layout ONCE, then verify Inspect Island Orientation reports portrait (1). Nothing frozen."
+                        default: return "Freeze refused/failed (\(result)). Inspect Lara log. If SpringBoard becomes unstable, respring."
+                        }
+                    }
+                } label: {
+                    Text("Freeze Island Portrait (Experimental)")
+                }
+                Button {
+                    run("Unfreeze Island Portrait — v13.2") {
+                        let result = unfreeze_dynamic_island_portrait_v132(mgr.sbProc)
+                        switch result {
+                        case 0: return "Original SpringBoard orientation updater restored. The Island may revert to normal behavior on its next event."
+                        case 1: return "Freeze was already OFF. No change."
+                        default: return "Unfreeze refused/failed (\(result)). Inspect log. Respring SpringBoard to reset the runtime method if needed."
+                        }
+                    }
+                } label: {
+                    Text("Unfreeze Island Portrait (Restore Original)")
+                }
+            } header: {
+                Text("Dynamic Island — Portrait Freeze v13.2 (Dangerous Experiment)")
+            } footer: {
+                Text("Only enabled on iOS 18.4 build 22E240. First move Island and use the working v13.0 portrait button, then confirm portrait (1), THEN Freeze. This globally suppresses that Island controller class's normal orientation-update method. It may break Island animations or cause a respring. Do not combine with v13.1 visual 180°. The original method is saved inside SpringBoard for later Unfreeze even after closing Lara; a SpringBoard restart automatically clears the freeze. Tested only by syntax/static checks, NOT on device.")
+            }
+            .disabled(!mgr.rcready || running)
+
+            Section {
+                Button {
                     run("Rotate Dynamic Island Visuals 180 — v13.1") {
                         let result = rotate_dynamic_island_visual_180(mgr.sbProc)
                         switch result {
@@ -236,9 +281,9 @@ struct RemoteView: View {
                     Text("Restore Island Visual Rotation")
                 }
             } header: {
-                Text("Dynamic Island — Visual Rotation v13.1 (Experimental)")
+                Text("Dynamic Island — Legacy Visual Rotation v13.1 (Avoid with Freeze)")
             } footer: {
-                Text("First activate the working v13.0 Portrait Island Layout. Then press Rotate Island Visuals 180°. Only visual container-layer transforms change; window positioning and layout policy are untouched. Experimental: confirm touch behavior and expanded animations. Use Restore or respring if incorrect.")
+                Text("Legacy v13.1 one-shot visual transform, not needed for the v13.2 portrait-freeze test. Do not combine it with Freeze. If you previously used 180° rotation, restore it or respring before testing v13.2.")
             }
             .disabled(!mgr.rcready || running)
 
