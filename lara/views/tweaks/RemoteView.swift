@@ -260,6 +260,55 @@ struct RemoteView: View {
 
             Section {
                 Button {
+                    run("Inspect Island Inner Visual — v13.3 Read Only") {
+                        let result = inspect_dynamic_island_inner_rotation_v133(mgr.sbProc)
+                        switch result {
+                        case 0: return "Inner Island layer is at 0 degrees. The portrait freeze is separate. Check Lara log for exact layer identities/angles."
+                        case 1: return "Inner Island layer is at 180 degrees (π). Check Lara log for exact layer identities/angles."
+                        case 2: return "Inner layer transforms are mixed or unexpected. No changes made; inspect Lara log."
+                        default: return "Inner Island inspection failed (\(result)). No changes made. Inspect Lara log."
+                        }
+                    }
+                } label: {
+                    Text("Inspect Inner Island Rotation (Safe)")
+                }
+                Button {
+                    run("Flip Island Inner Content 180 — v13.3") {
+                        let result = rotate_dynamic_island_inner_180_v133(mgr.sbProc)
+                        switch result {
+                        case 0: return "180-degree inner-content transform read back correctly; portrait (1) and freeze are still verified. Test timer text, expansion, touch, lock/unlock, and re-inspect after a few minutes."
+                        case 1: return "The inner content is already at 180 degrees; nothing changed."
+                        case -80: return "First enable and verify the v13.2 portrait freeze. Nothing changed."
+                        case -81: return "The live Island must be portrait (1). Nothing changed."
+                        case -82: return "An unexpected inner transform was found. No change. Inspect the Lara log."
+                        case -88: return "The inner flip applied, but the portrait/freeze check no longer matches. Use Restore Inner Content and inspect the log."
+                        default: return "Inner visual flip failed (\(result)). Check Lara log. If queued work partially ran, use Restore below or respring."
+                        }
+                    }
+                } label: {
+                    Text("Flip Island Inner Content 180° (v13.3)")
+                }
+                Button {
+                    run("Restore Island Inner Content — v13.3") {
+                        let result = restore_dynamic_island_inner_rotation_v133(mgr.sbProc)
+                        switch result {
+                        case 0: return "Inner-content flip reset to 0 degrees, readback verified. The portrait freeze remains installed."
+                        case 1: return "Inner-content flip already 0 degrees; nothing changed."
+                        default: return "Inner restore failed (\(result)). Check Lara log; respring restores stock runtime if necessary."
+                        }
+                    }
+                } label: {
+                    Text("Restore Inner Content 0° (v13.3)")
+                }
+            } header: {
+                Text("Dynamic Island — Inner Visual 180° v13.3 (Experimental)")
+            } footer: {
+                Text("Requires iOS 18.4 build 22E240; intended for the tested iPhone 12 setup. First apply and verify portrait (1), freeze it, and move the Island as usual. Flip Inner Content uses a different layer property from the legacy flip. Inspection logs layer identities and angles; readback cannot prove lasting visuals or correct touch targets. Restore also works after unfreezing or reopening Lara. Test timer expansion, music and lock/unlock. A respring clears the changes.")
+            }
+            .disabled(!mgr.rcready || running)
+
+            Section {
+                Button {
                     run("Rotate Dynamic Island Visuals 180 — v13.1") {
                         let result = rotate_dynamic_island_visual_180(mgr.sbProc)
                         switch result {
@@ -269,8 +318,9 @@ struct RemoteView: View {
                         }
                     }
                 } label: {
-                    Text("Rotate Island Visuals 180°")
+                    Text("Rotate Island Visuals 180° (legacy — disabled)")
                 }
+                .disabled(true)
                 Button {
                     run("Restore Dynamic Island Visuals — v13.1") {
                         let result = restore_dynamic_island_visual_rotation(mgr.sbProc)
@@ -281,9 +331,9 @@ struct RemoteView: View {
                     Text("Restore Island Visual Rotation")
                 }
             } header: {
-                Text("Dynamic Island — Legacy Visual Rotation v13.1 (Avoid with Freeze)")
+                Text("Dynamic Island — Legacy v13.1 Outer-Layer Rotation (Disabled)")
             } footer: {
-                Text("Legacy v13.1 one-shot visual transform, not needed for the v13.2 portrait-freeze test. Do not combine it with Freeze. If you previously used 180° rotation, restore it or respring before testing v13.2.")
+                Text("Legacy v13.1 outer-container flip is disabled so it cannot conflict with v13.3 inner-content flip. Old restore remains for recovery if it was used before this build; a respring clears both visual experiments and the v13.2 freeze.")
             }
             .disabled(!mgr.rcready || running)
 
