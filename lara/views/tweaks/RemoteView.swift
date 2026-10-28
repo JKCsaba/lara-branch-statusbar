@@ -260,31 +260,47 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("Rotate Dynamic Island Visuals 180 — v13.1") {
-                        let result = rotate_dynamic_island_visual_180(mgr.sbProc)
+                    run("Flip Whole Island 180° — v13.5") {
+                        let result = flip_dynamic_island_outer_v135(mgr.sbProc)
                         switch result {
-                        case 0: return "Visual 180-degree rotation queued. Check timer digits, Island expansion and touch behavior."
-                        case -40: return "First press Try Portrait Island Layout ONCE (v13.0). Rotation not applied."
-                        default: return "Island visual rotation refused (\(result)). Check Lara log; don't retry blindly."
+                        case 0: return "Whole-Island flip queued. Use Inspect Whole Island Flip to check the applied transform and portrait freeze."
+                        case 1: return "Whole-Island 180° transform is already applied. No second rotation queued."
+                        case -138: return "First apply portrait geometry and Freeze Island Portrait. Both must report portrait/frozen before flipping."
+                        case -139: return "Could not measure the live Island pivot. Nothing rotated. Check the Lara log."
+                        default: return "Whole-Island flip refused (\(result)). Check the Lara log."
                         }
                     }
                 } label: {
-                    Text("Legacy 180° Flip — Disabled")
+                    Text("Flip Whole Island 180°")
                 }
-                .disabled(true)
                 Button {
-                    run("Restore Dynamic Island Visuals — v13.1") {
-                        let result = restore_dynamic_island_visual_rotation(mgr.sbProc)
-                        return result == 0 ? "Original visual orientation queued."
-                            : "Visual restore refused (\(result)); respring if necessary."
+                    run("Inspect Whole Island Flip — v13.5") {
+                        let result = inspect_dynamic_island_outer_flip_v135(mgr.sbProc)
+                        switch result {
+                        case 0: return "Outer flip is absent. Portrait (1) and freeze are confirmed."
+                        case 1: return "Whole-Island 180° matrix is applied. Portrait (1) and freeze remain confirmed. Visual appearance and touch behavior still need checking."
+                        case 2: return "The saved original outer matrix is visible: the flip is restored, pending, or was reset. Portrait (1) and freeze remain confirmed."
+                        case -138: return "Portrait orientation or freeze is no longer active. Check the existing orientation/freeze controls."
+                        default: return "Whole-Island inspection refused (\(result)). Check the Lara log."
+                        }
                     }
                 } label: {
-                    Text("Restore Island Visual Rotation")
+                    Text("Inspect Whole Island Flip")
+                }
+                Button {
+                    run("Restore Whole Island Flip — v13.5") {
+                        let result = restore_dynamic_island_outer_v135(mgr.sbProc)
+                        return result == 0 ? "Original outer transform queued; portrait freeze is unchanged."
+                            : result == 1 ? "No saved whole-Island flip to restore."
+                            : "Outer restore refused (\(result)). Check the Lara log."
+                    }
+                } label: {
+                    Text("Restore Whole Island Flip")
                 }
             } header: {
-                Text("Dynamic Island — Legacy Visual Rotation v13.1 (Avoid with Freeze)")
+                Text("Dynamic Island — Whole Island Flip v13.5")
             } footer: {
-                Text("Recovery v13.4.1 restores the v13.2 implementation. The v13.4 outer inspection/rotation path and v13.3 inner flip are removed. The legacy v13.1 flip is disabled. Portrait geometry and freeze remain available; the final outer 180° correction remains unresolved. Respring before applying the working portrait + freeze sequence.")
+                Text("After the working Move → Portrait → Freeze sequence, collapse the Island and press Flip Whole Island 180°. This rotates the content and both background groups together around the current pill center. The transform stays in SpringBoard after Lara closes; replacing the root view or restarting SpringBoard clears it. Static checks only; device persistence, expansion and touch behavior are not yet verified.")
             }
             .disabled(!mgr.rcready || running)
 
