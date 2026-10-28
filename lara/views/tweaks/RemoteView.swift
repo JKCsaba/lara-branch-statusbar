@@ -260,107 +260,6 @@ struct RemoteView: View {
 
             Section {
                 Button {
-                    run("Inspect Native Outer Island Rotation — v13.4") {
-                        let result = inspect_dynamic_island_outer_rotation_v134(mgr.sbProc)
-                        switch result {
-                        case 0: return "Native outer rotation policy is off. See the log for the current outer orientation, physical anchor and inner freeze."
-                        case 1: return "Verified: outer view basis is 180° from the saved baseline, placement matches, and inner portrait (1) remains frozen. Check actual visuals and touch behavior."
-                        case 2: return "Outer state is partial, changed or no longer verified. Use Restore Outer Rotation Policy and inspect the log."
-                        default: return "Native outer inspection failed (\(result)). No rotation requested. Inspect the log."
-                        }
-                    }
-                } label: {
-                    Text("Inspect Outer Rotation (v13.4)")
-                }
-                Button {
-                    run("Enable Native Whole Island Rotation — v13.4") {
-                        let result = rotate_dynamic_island_outer_native_v134(mgr.sbProc)
-                        switch result {
-                        case 0: return "Native outer 180° rotation and physical placement verified; inner portrait freeze preserved. Test compact/expanded timer, music, touch and lock/unlock."
-                        case 1: return "Native outer rotation is already applied and verified. Nothing repeated."
-                        case -124: return "An earlier outer operation is partial or no longer verified. Use Restore Outer Rotation Policy first."
-                        case -125: return "First apply portrait (1), verify it, and enable the working v13.2 portrait freeze."
-                        case -126: return "An older visual transform is present. Restore Inner Content 0°, or respring and reapply portrait + freeze before testing v13.4."
-                        case -130: return "UIKit did not produce the required outer 180° rotation. Outer rollback was attempted. Inspect the log; respring if recovery is incomplete."
-                        case -132: return "Outer position or final checks did not match. Outer rollback was attempted. Inspect the log; respring if necessary."
-                        case -105: return "A main-thread operation did not finish within the wait. Work may still be queued. Do not repeat the button; respring if the result is unclear."
-                        default: return "Native outer rotation refused or failed (\(result)). Inspect the log and outer status before retrying; respring if recovery is incomplete."
-                        }
-                    }
-                } label: {
-                    Text("Rotate Whole Island with UIKit (v13.4)")
-                }
-                Button {
-                    run("Restore Native Outer Island Policy — v13.4") {
-                        let result = restore_dynamic_island_outer_rotation_v134(mgr.sbProc)
-                        switch result {
-                        case 0: return "Original outer rotation methods and saved window center restored. The inner portrait freeze was not changed. Verify the display; respring if necessary."
-                        case 1: return "Outer rotation policy is already stock; no saved v13.4 operation."
-                        default: return "Outer restore failed (\(result)). Inspect the log. A respring clears runtime changes."
-                        }
-                    }
-                } label: {
-                    Text("Restore Outer Rotation Policy (v13.4)")
-                }
-            } header: {
-                Text("Dynamic Island — Native Outer Rotation v13.4")
-            } footer: {
-                Text("Keep your working internal portrait (1) + v13.2 freeze. Move the Island first, then use the whole-Island button. This enables UIKit's outer window autorotation and permits both portrait orientations for the Island controllers. Inner layer transforms are left alone. Method backups and saved placement live in SpringBoard, so closing Lara does not remove them. Inspection verifies the model, not the displayed geometry or long-term behavior. A respring clears the runtime changes.")
-            }
-            .disabled(!mgr.rcready || running)
-
-            Section {
-                Button {
-                    run("Inspect Island Inner Visual — v13.3 Read Only") {
-                        let result = inspect_dynamic_island_inner_rotation_v133(mgr.sbProc)
-                        switch result {
-                        case 0: return "Inner Island layer is at 0 degrees. The portrait freeze is separate. Check Lara log for exact layer identities/angles."
-                        case 1: return "Inner Island layer is at 180 degrees (π). Check Lara log for exact layer identities/angles."
-                        case 2: return "Inner layer transforms are mixed or unexpected. No changes made; inspect Lara log."
-                        default: return "Inner Island inspection failed (\(result)). No changes made. Inspect Lara log."
-                        }
-                    }
-                } label: {
-                    Text("Inspect Inner Island Rotation (Safe)")
-                }
-                Button {
-                    run("Flip Island Inner Content 180 — v13.3") {
-                        let result = rotate_dynamic_island_inner_180_v133(mgr.sbProc)
-                        switch result {
-                        case 0: return "180-degree inner-content transform read back correctly; portrait (1) and freeze are still verified. Test timer text, expansion, touch, lock/unlock, and re-inspect after a few minutes."
-                        case 1: return "The inner content is already at 180 degrees; nothing changed."
-                        case -80: return "First enable and verify the v13.2 portrait freeze. Nothing changed."
-                        case -81: return "The live Island must be portrait (1). Nothing changed."
-                        case -82: return "An unexpected inner transform was found. No change. Inspect the Lara log."
-                        case -88: return "The inner flip applied, but the portrait/freeze check no longer matches. Use Restore Inner Content and inspect the log."
-                        default: return "Inner visual flip failed (\(result)). Check Lara log. If queued work partially ran, use Restore below or respring."
-                        }
-                    }
-                } label: {
-                    Text("Flip Island Inner Content 180° (v13.3)")
-                }
-                .disabled(true)
-                Button {
-                    run("Restore Island Inner Content — v13.3") {
-                        let result = restore_dynamic_island_inner_rotation_v133(mgr.sbProc)
-                        switch result {
-                        case 0: return "Inner-content flip reset to 0 degrees, readback verified. The portrait freeze was not changed."
-                        case 1: return "Inner-content flip already 0 degrees; nothing changed."
-                        default: return "Inner restore failed (\(result)). Check Lara log; respring restores stock runtime if necessary."
-                        }
-                    }
-                } label: {
-                    Text("Restore Inner Content 0° (v13.3)")
-                }
-            } header: {
-                Text("Dynamic Island — Failed Inner Flip v13.3 (Disabled)")
-            } footer: {
-                Text("This inner flip spoiled the rendered geometry in the device test. Its apply button is disabled. Inspection and Restore remain available to clear a prior v13.3 flip before testing native outer rotation.")
-            }
-            .disabled(!mgr.rcready || running)
-
-            Section {
-                Button {
                     run("Rotate Dynamic Island Visuals 180 — v13.1") {
                         let result = rotate_dynamic_island_visual_180(mgr.sbProc)
                         switch result {
@@ -370,7 +269,7 @@ struct RemoteView: View {
                         }
                     }
                 } label: {
-                    Text("Rotate Island Visuals 180° (legacy — disabled)")
+                    Text("Legacy 180° Flip — Disabled")
                 }
                 .disabled(true)
                 Button {
@@ -383,9 +282,9 @@ struct RemoteView: View {
                     Text("Restore Island Visual Rotation")
                 }
             } header: {
-                Text("Dynamic Island — Legacy v13.1 Outer-Layer Rotation (Disabled)")
+                Text("Dynamic Island — Legacy Visual Rotation v13.1 (Avoid with Freeze)")
             } footer: {
-                Text("Legacy v13.1 outer-container flip is disabled so it cannot conflict with v13.3 inner-content flip. Old restore remains for recovery if it was used before this build; a respring clears both visual experiments and the v13.2 freeze.")
+                Text("Recovery v13.4.1 restores the v13.2 implementation. The v13.4 outer inspection/rotation path and v13.3 inner flip are removed. The legacy v13.1 flip is disabled. Portrait geometry and freeze remain available; the final outer 180° correction remains unresolved. Respring before applying the working portrait + freeze sequence.")
             }
             .disabled(!mgr.rcready || running)
 
@@ -400,7 +299,6 @@ struct RemoteView: View {
                         case 0: return "Island position accepted. Check the Island on Home Screen."
                         case -2: return "Island window unavailable; nothing changed."
                         case -7: return "Island position was not accepted or was reset by layout."
-                        case -8: return "Restore Outer Rotation Policy (v13.4) before using the original window-position controls."
                         default: return "Island position failed (\(result))."
                         }
                     }
